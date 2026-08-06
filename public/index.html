@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>監理站考照餘額監測</title>
+<link rel="stylesheet" href="/style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛵</text></svg>" />
+</head>
+<body>
+<header>
+  <div class="wrap head">
+    <h1>🛵 監理站考照餘額監測</h1>
+    <div class="status">
+      <span id="lastScan" class="pill">載入中…</span>
+      <label class="pill toggle"><input type="checkbox" id="autoRefresh" checked /> 自動更新</label>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <form id="filters" class="filters">
+    <label>照類
+      <select name="licenseType"><option value="">全部</option></select>
+    </label>
+    <label>縣市
+      <select name="county"><option value="">全部</option></select>
+    </label>
+    <label>監理站
+      <select name="dmvNo"><option value="">全部</option></select>
+    </label>
+    <label>從
+      <input type="date" name="from" />
+    </label>
+    <label>到
+      <input type="date" name="to" />
+    </label>
+    <label>最少餘額
+      <input type="number" name="minQuota" min="1" value="1" />
+    </label>
+    <label class="check"><input type="checkbox" name="weekendOnly" value="1" /> 只看週末假日</label>
+    <label class="check"><input type="checkbox" name="watchedOnly" value="1" /> 只看追蹤</label>
+    <button type="button" id="reset" class="ghost">清除</button>
+  </form>
+
+  <div class="cols">
+    <section class="panel">
+      <h2>現在有位 <span id="count" class="count"></span></h2>
+      <div class="tablewrap">
+        <table id="avail">
+          <thead>
+            <tr>
+              <th class="star" title="追蹤這個 監理站×照類">★</th>
+              <th>考試日期</th>
+              <th>監理站</th>
+              <th>照類</th>
+              <th class="num">餘額</th>
+              <th>場次</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="7" class="empty">載入中…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h2>剛剛釋出</h2>
+      <p class="hint">退考釋位會出現在這裡。<code>釋出</code> 表示從額滿變成有位。</p>
+      <ul id="events" class="events"><li class="empty">載入中…</li></ul>
+    </aside>
+  </div>
+</main>
+
+<footer class="wrap">
+  <div id="health" class="health"></div>
+  <p class="disclaimer">
+    資料每分鐘分批抓取自
+    <a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener">監理服務網考照預約報名</a>，
+    非即時，僅供參考。實際餘額與報名一律以官網為準；本站不代辦報名。
+  </p>
+</footer>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

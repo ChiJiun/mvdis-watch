@@ -1,0 +1,138 @@
+# 監理站考照餘額監測
+
+持續掃描全台 36 個監理站 × 10 種照類的考照場次餘額，把「現在有位」和「剛剛釋出」攤在一個儀表板上。
+
+熱門站點（例如板橋站普通重型機車）常常未來一整個月的場次全部額滿，唯一的機會是別人退考釋位——這個網站就是幫你盯著那一刻。
+
+## 這是什麼、不是什麼
+
+- **是**唯讀的監測看板。資料來自監理服務網公開的查詢頁面，沒有驗證碼、不需要登入。
+- **不代辦報名**。有位時只給你官網連結，報名要自己去填（涉及身分證字號與體檢資料）。
+- **不即時**。分批掃描，熱門照類約 10 分鐘一輪，冷門照類約 2 小時一輪。實際餘額一律以官網為準。
+
+## 架構
+
+單一 Cloudflare Worker 同時扮演三個角色：cron 抓取器、儀表板 API、靜態前端來源。
+
+```
+Cron (每分鐘) ─► scheduled() ─► 取下一分片 → 併發抓取 → 解析 → 差異寫入 D1
+                                                                    │
+瀏覽器 ─► fetch()  /              靜態儀表板 (Workers Assets)        │
+                   /api/available  目前有餘額的場次 ◄─────────────────┤
+                   /api/events     最近的變化事件流 ◄─────────────────┤
+                   /api/slots      單一組合的完整場次表 ◄─────────────┤
+                   /api/meta       站別/照類對照 + 掃描健康度 ◄───────┘
+```
+
+| 檔案 | 職責 |
+| --- | --- |
+| `src/mvdis.ts` | 抓取與解析核心，可獨立於 Cloudflare 執行 |
+| `src/catalogue.ts` | 36 站 + 10 照類的對照表 |
+| `src/scan.ts` | 分層分片排程、降頻、清理 |
+| `src/db.ts` | D1 存取與差異比對 |
+| `src/index.ts` | Worker 進入點與 API 路由 |
+| `public/` | 儀表板前端（原生 ES module，無打包步驟） |
+| `scripts/sweep.mjs` | 本機驗證用，不碰 Cloudflare |
+
+## 幾個設計決定的理由
+
+**只寫變動的列。** 全量寫入約每天 40 萬列，會撞破 D1 免費方案的 10 萬列/日上限。只寫差異之後每天只剩幾千列，而且差異本身就是我們要的釋位事件。所以請不要為了記錄「最後看到時間」而每輪更新每一列。
+
+**場次鍵從說明文字推導，不是從官網的 `preAdd()` 參數。** 「額滿」的列沒有報名連結、拿不到 `preAdd` 參數；如果兩種狀態用不同的鍵，同一個場次從有位變額滿時會被誤判成「一個場次消失＋另一個出現」，事件流就髒了。
+
+**解析前先把 HTML 切片。** 官網回應是整頁 70 KB，我們只要 `id="trnTable"` 那一段（約 15 KB）。Workers 免費方案單次 CPU 只有 10 ms，對整頁跑正則會很緊。
+
+**分層掃描。** 實測 360 個組合中有 153 個根本沒有任何場次（例如恆春分站不考聯結車），而會被搶的只有機車和普通小型車。全部同頻率掃是對政府網站的浪費。連續 5 次抓到空結果的組合會自動降頻成每 24 小時複查一次。
+
+## 本機開發
+
+```bash
+npm install
+```
+
+驗證抓取核心（直接打官網，不需要 Cloudflare 帳號）：
+
+```bash
+npm run sweep -- --fixtures
+```
+
+掃過全部 360 個組合，印出目前有餘額的場次：
+
+```bash
+npm run sweep
+```
+
+起本機服務（含本地 D1）：
+
+```bash
+npm run db:init && npm run dev
+```
+
+手動觸發一輪掃描（本機 token 寫在 `wrangler.toml`）：
+
+```bash
+curl -X POST -H "x-scan-token: dev-only-change-me" http://127.0.0.1:8788/api/scan
+```
+
+## 部署到 Cloudflare
+
+需要一個免費的 Cloudflare 帳號。以下指令請你自己執行——登入與建立資源會綁定你的帳號。
+
+1. 登入：
+
+```bash
+npx wrangler login
+```
+
+2. 建立 D1 資料庫，把回傳的 `database_id` 填進 `wrangler.toml`：
+
+```bash
+npx wrangler d1 create mvdis
+```
+
+3. 套用 schema：
+
+```bash
+npx wrangler d1 execute mvdis --remote --file=schema.sql
+```
+
+4. 設定手動掃描端點的 token（**別沿用 `wrangler.toml` 裡的開發預設值**，否則 `/api/scan` 會變成別人拿來打監理站的跳板）：
+
+```bash
+npx wrangler secret put SCAN_TOKEN
+```
+
+5. 部署：
+
+```bash
+npx wrangler deploy
+```
+
+6. 確認 cron 真的有在跑，並且看實際 CPU 用量：
+
+```bash
+npx wrangler tail --format pretty
+```
+
+### 部署後要檢查的三件事
+
+1. **Cloudflare 出得去嗎。** Worker 的出口 IP 遍布全球，監理服務網有可能對非台灣 IP 有限制。`wrangler tail` 若持續看到抓取失敗，就是被擋了——退路是把抓取搬到 GitHub Actions（cron 產出 JSON），Worker 只留 API 與前端。
+2. **CPU 有沒有超標。** 免費方案單次 10 ms。`wrangler tail` 會顯示每次 cron 的 CPU 時間；若超標就把 `wrangler.toml` 裡的 `HOT_PER_TICK` / `COLD_PER_TICK` 調小（代價是輪完一圈變慢），或升級 Workers Paid（US$5/月，30s CPU + 1000 subrequests，可以一次掃完 360 組）。
+3. **D1 寫入量。** Cloudflare dashboard 看 D1 的 rows written。正常應該遠低於每天 10 萬列。
+
+## 資料來源
+
+`POST https://www.mvdis.gov.tw/m3-emv-trn/exm/locations`
+
+| 參數 | 說明 |
+| --- | --- |
+| `method` | `query` 查場次／`dmvOnChange` 取站別清單 |
+| `licenseTypeCode` | `5` 輕機、`3` 重機、`A` 普小、`B` 職小、`C` 普大貨、`D` 職大貨、`E` 普大客、`F` 職大客、`G` 普聯結、`H` 職聯結 |
+| `expectExamDateStr` | 民國日期 `yyyMMdd`，例如 `1150806` |
+| `dmvNoLv1` | 區監理所 `20`/`40`/`50`/`60`/`70`/`30`/`80` |
+| `dmvNo` | 監理站，見 `src/catalogue.ts` |
+| `onlyWeekend` | 只查週末假日場次 |
+
+回應是整頁 HTML，場次在 `id="trnTable"` 的表格內：考試日期 / 場次組別說明 / 可報名人數（數字或「額滿」）/ 報名連結。
+
+若官網日後加上驗證碼或改變結構，這個專案就會停在那裡——不會去繞驗證機制。站別清單改制時用 `npm run sweep -- --stations` 重新產生 `src/catalogue.ts` 的內容。

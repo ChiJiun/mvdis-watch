@@ -1,0 +1,31 @@
+name = "mvdis-watch"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# 靜態儀表板。符合檔案的路徑直接由 assets 服務，其餘（/api/*）才進 Worker。
+[assets]
+directory = "./public"
+
+# 先跑 `npx wrangler d1 create mvdis`，把回傳的 database_id 填進來
+[[d1_databases]]
+binding = "DB"
+database_name = "mvdis"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# 每分鐘一次；每次只掃一小片，見 src/scan.ts 的分層排程
+[triggers]
+crons = ["* * * * *"]
+
+[observability]
+enabled = true
+
+[vars]
+# 每次 cron 掃描的組合數上限。Workers 免費方案單次呼叫最多 50 個 subrequest，
+# 且單次 CPU 只有 10ms —— 若 wrangler tail 顯示 CPU 超標就把這兩個數字調小。
+HOT_PER_TICK = "11"
+COLD_PER_TICK = "3"
+FETCH_CONCURRENCY = "5"
+# 本機開發用的手動掃描 token。正式環境請改用
+#   npx wrangler secret put SCAN_TOKEN
+# 覆蓋掉它，否則 /api/scan 會變成別人拿來打監理站的跳板。
+SCAN_TOKEN = "dev-only-change-me"
