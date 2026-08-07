@@ -4,7 +4,7 @@
  */
 import { LICENSE_TYPES, OFFICES, STATIONS } from './catalogue.ts';
 import { runScanTick, todayIso, type Env as ScanEnv } from './scan.ts';
-import { queryAvailable, queryEvents, queryCombo, scanHealth, getState } from './db.ts';
+import { queryAvailable, queryEvents, queryCombo, scanHealth, getStates } from './db.ts';
 
 type Env = ScanEnv & { SCAN_TOKEN?: string };
 
@@ -25,7 +25,8 @@ export default {
 
     try {
       if (p === '/api/meta') {
-        const [health, lastTick] = await Promise.all([scanHealth(env.DB), getState(env.DB, 'last_tick')]);
+        const [health, state] = await Promise.all([scanHealth(env.DB), getStates(env.DB, ['last_tick'])]);
+        const lastTick = state.get('last_tick') ?? null;
         return json({
           licenseTypes: LICENSE_TYPES,
           offices: OFFICES,

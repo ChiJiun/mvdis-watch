@@ -20,8 +20,16 @@ crons = ["* * * * *"]
 enabled = true
 
 [vars]
-# 每次 cron 掃描的組合數上限。Workers 免費方案單次呼叫最多 50 個 subrequest，
-# 且單次 CPU 只有 10ms —— 若 wrangler tail 顯示 CPU 超標就把這兩個數字調小。
+# 每次 cron 掃描的組合數上限（熱門層 + 冷門層 = 14）。
+#
+# 免費方案三個上限的實測用量（詳見 README 的「免費方案實測」）：
+#   subrequest  14 / 50    只有 fetch 算，D1 查詢不算
+#   D1 查詢     39 / 50    首次建表的最壞值，穩態約 7-12
+#   CPU       6.45 / 10 ms 最壞值（假設 14 頁全是最重的 92KB/66 列頁），
+#                          實際平均每組合只有 7.7 列，典型約 2ms
+#
+# CPU 是三者中餘裕最小的。若 wrangler tail 出現 CPU 超標，把這兩個數字調小
+# （代價是輪完一圈變慢）；調大則相反，18/4 大約會用掉 8.3ms，已經很貼邊。
 HOT_PER_TICK = "11"
 COLD_PER_TICK = "3"
 FETCH_CONCURRENCY = "5"
