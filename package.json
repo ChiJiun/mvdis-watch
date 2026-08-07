@@ -7,7 +7,8 @@
   "scripts": {
     "sweep": "node --experimental-strip-types --no-warnings scripts/sweep.mjs",
     "typecheck": "tsc --noEmit",
-    "dev": "wrangler dev --port 8788",
+    "dev": "wrangler dev --port 8788 --test-scheduled",
+    "tick": "node scripts/tick.mjs",
     "deploy": "wrangler deploy",
     "db:init": "wrangler d1 execute mvdis --local --file=schema.sql",
     "db:init:remote": "wrangler d1 execute mvdis --remote --file=schema.sql"
