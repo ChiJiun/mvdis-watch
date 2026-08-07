@@ -45,6 +45,27 @@ CREATE TABLE IF NOT EXISTS scan_state (
   value TEXT NOT NULL
 );
 
+-- 通知訂閱。target 是 Discord webhook URL —— 它等同密鑰，任何人拿到就能
+-- 往你的頻道發訊息，所以 /api/subscriptions 全系列端點都要 ADMIN_TOKEN。
+CREATE TABLE IF NOT EXISTS subscription (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind         TEXT NOT NULL DEFAULT 'discord',
+  target       TEXT NOT NULL,
+  label        TEXT,
+  active       INTEGER NOT NULL DEFAULT 1,
+  created_at   INTEGER NOT NULL,
+  last_sent_at INTEGER,
+  last_error   TEXT
+);
+
+-- 這個訂閱要盯哪些「監理站 × 照類」。空的代表全部。
+CREATE TABLE IF NOT EXISTS subscription_watch (
+  subscription_id INTEGER NOT NULL,
+  license_type    TEXT NOT NULL,
+  dmv_no          TEXT NOT NULL,
+  PRIMARY KEY (subscription_id, license_type, dmv_no)
+);
+
 -- 每個組合的掃描健康度。empty_streak 用來跳過長期沒開場次的組合
 -- （實測 360 組中有 153 組永遠是空的，例如恆春分站不考聯結車）。
 CREATE TABLE IF NOT EXISTS scan_log (

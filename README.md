@@ -134,7 +134,29 @@ npm run tick
 curl -X POST -H "x-scan-token: dev-only-change-me" http://127.0.0.1:8788/api/scan
 ```
 
-## 部署到 Cloudflare
+## 通知綁定（Discord）
+
+只在你 ★ 追蹤的「監理站 × 照類」**從額滿變成有位**時推播——那是退考釋出、也是唯一
+值得搶的那一刻。`increased`（本來就有位、數量變多）和 `new`（新開場次）不推，
+否則熱門站一天會轟你幾十則，然後你就會關掉通知。
+
+1. Discord 裡：頻道 → 編輯頻道 → 整合 → Webhook → 建立 → 複製網址
+2. 網站右上角「🔔 通知設定」→ 輸入 `ADMIN_TOKEN` → 貼上 webhook 網址
+3. 先回表格點幾個 ★ 追蹤，再按「用目前追蹤清單建立訂閱」
+4. 按「測試」確認訊息真的進得了你的頻道
+
+> ⚠️ **webhook 網址等同密鑰**，存在 D1 裡。任何拿到它的人都能往你的頻道發訊息。
+> 所以 `/api/subscriptions` 全系列端點都需要 `ADMIN_TOKEN`，API 回傳時網址也會遮罩。
+> 真的外流就去 Discord 刪掉重建一個。
+
+推播上限是每輪 5 則（每個訂閱一則、多個場次合併在同一則），這是為了守住
+Workers 免費方案單次 50 個 subrequest 的限制——抓取已經用掉 14 個。
+
+## 部署到 Cloudflare：免費、24/7、有公開網域
+
+Cloudflare Workers 免費方案給你一個 `https://<worker名>.<你的帳號子網域>.workers.dev`
+的公開網址，有 HTTPS、全球 CDN、不用備案、不用信用卡。伺服器由 Cloudflare 跑，
+你的電腦關機也不影響。
 
 需要一個免費的 Cloudflare 帳號。以下指令請你自己執行——登入與建立資源會綁定你的帳號。
 
@@ -156,13 +178,19 @@ npx wrangler d1 create mvdis
 npx wrangler d1 execute mvdis --remote --file=schema.sql
 ```
 
-4. 設定手動掃描端點的 token（**別沿用 `wrangler.toml` 裡的開發預設值**，否則 `/api/scan` 會變成別人拿來打監理站的跳板）：
+4. 設定兩個 token。**別沿用 `wrangler.toml` 裡的開發預設值**——那個檔案在公開 repo 裡，
+   全世界都看得到。`SCAN_TOKEN` 沒改，`/api/scan` 會變成別人拿來打監理站的跳板；
+   `ADMIN_TOKEN` 沒改，任何人都能讀走你的 Discord webhook 網址：
 
 ```bash
 npx wrangler secret put SCAN_TOKEN
 ```
 
-5. 部署：
+```bash
+npx wrangler secret put ADMIN_TOKEN
+```
+
+5. 部署。跑完會印出你的公開網址：
 
 ```bash
 npx wrangler deploy
@@ -173,6 +201,15 @@ npx wrangler deploy
 ```bash
 npx wrangler tail --format pretty
 ```
+
+部署後 cron 每分鐘自動觸發，不需要你的電腦開著。熱門照類約 10 分鐘輪完一圈，
+所以第一次要等十幾分鐘資料才會長滿。
+
+### 想換成自己的網域（唯一要花錢的地方）
+
+`*.workers.dev` 已經是公開可用的正式網址。若要換成自己的網域，網域本身要自己買
+（Cloudflare Registrar 約 US$10/年起），但把它接到 Worker 是免費的：把網域加進
+Cloudflare、DNS 指過去，然後在 `wrangler.toml` 加上 route 設定重新部署即可。
 
 ### 部署後要檢查的三件事
 

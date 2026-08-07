@@ -37,3 +37,7 @@ FETCH_CONCURRENCY = "5"
 #   npx wrangler secret put SCAN_TOKEN
 # 覆蓋掉它，否則 /api/scan 會變成別人拿來打監理站的跳板。
 SCAN_TOKEN = "dev-only-change-me"
+# 保護 /api/subscriptions 全系列端點。Discord webhook 網址等同密鑰，而這個
+# 網站掛在公開網域上，沒有它任何人都能讀走你的 webhook 或亂加訂閱。
+#   npx wrangler secret put ADMIN_TOKEN
+ADMIN_TOKEN = "dev-only-change-me"

@@ -28,6 +28,7 @@ import {
   setStatesStmt,
   type ComboDiff,
 } from './db.ts';
+import { notifyReleased } from './notify.ts';
 
 export type Env = {
   DB: D1Database;
@@ -44,12 +45,19 @@ const PRUNE_RECHECK_MS = 24 * 3600 * 1000;
 const EVENT_RETENTION_MS = 30 * 24 * 3600 * 1000;
 
 /**
- * 一次 tick 最多送出幾個寫入 statement。
- * 固定開銷是 3 個讀取 + 1 個狀態寫入 + 最多 2 個 scan_log 寫入，
- * 40 + 6 = 46 < 50，留了餘裕。超出預算的組合這輪不套用、游標也不前進，
- * 下一輪會重來 —— 只有第一次建表時會碰到，穩態下每輪通常只有個位數 statement。
+ * 一次 tick 最多送出幾個寫入 statement，用來守住 D1 免費方案的 50 查詢上限。
+ *
+ * 最壞情況的完整帳：
+ *   讀取 3（降頻清單、排程狀態、既有場次）
+ * + 讀取 2（通知訂閱與其追蹤清單，只在有釋位事件時才發生）
+ * + 寫入 30（本預算）
+ * + scan_log 2 + 排程狀態 1 + 通知回寫 5 + 每日清理 2
+ * = 45 < 50
+ *
+ * 超出預算的組合這輪不套用、游標也不前進，下一輪會重來。只有第一次建表時
+ * 會碰到，穩態下每輪通常只有個位數 statement。
  */
-const WRITE_BUDGET = 40;
+const WRITE_BUDGET = 30;
 
 export function todayIso(now: Date = new Date()): string {
   const tw = new Date(now.getTime() + 8 * 3600 * 1000);
@@ -191,6 +199,20 @@ export async function runScanTick(env: Env, now = Date.now()) {
     ['last_tick', String(now)],
   ];
 
+  // 只推「額滿 → 有位」，那是退考釋出的那一刻。詳見 notify.ts 開頭的說明。
+  const released = diffs
+    .flatMap((d) => d.events)
+    .filter((e) => e.kind === 'released')
+    .map((e) => ({
+      licenseType: e.licenseType,
+      dmvNo: e.dmvNo,
+      examDate: e.examDate,
+      secKey: e.secKey,
+      newQuota: e.newQuota,
+    }));
+  const notified = await notifyReleased(db, released, now);
+  stmts.push(...notified.stmts);
+
   const doCleanup = now - lastCleanup >= 24 * 3600 * 1000;
   if (doCleanup) stateEntries.push(['last_cleanup', String(now)]);
   stmts.push(setStatesStmt(db, stateEntries));
@@ -209,8 +231,12 @@ export async function runScanTick(env: Env, now = Date.now()) {
     failed: fetched.filter((f) => f.slots === null).length,
     events: diffs.reduce((a, d) => a + d.events.length, 0),
     writes: diffs.reduce((a, d) => a + d.upserts.length + d.deletes.length, 0),
-    // 這輪一共用掉幾個 D1 查詢（3 個讀取 + batch 裡的 statement），免費方案上限 50
-    d1Queries: 3 + stmts.length,
+    released: released.length,
+    notified: notified.sent,
+    notifyFailed: notified.failed,
+    // 這輪一共用掉幾個 D1 查詢，免費方案上限 50。
+    // 3 個固定讀取 +（有釋位時）2 個訂閱讀取 + batch 裡的每個 statement。
+    d1Queries: 3 + (released.length ? 2 : 0) + stmts.length,
     budgetHit,
     skipped: skip.size,
   };

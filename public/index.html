@@ -14,33 +14,47 @@
     <div class="status">
       <span id="lastScan" class="pill">載入中…</span>
       <label class="pill toggle"><input type="checkbox" id="autoRefresh" checked /> 自動更新</label>
+      <button type="button" id="openNotify" class="pill btn">🔔 通知設定</button>
     </div>
   </div>
 </header>
 
 <main class="wrap">
-  <form id="filters" class="filters">
-    <label>照類
-      <select name="licenseType"><option value="">全部</option></select>
-    </label>
-    <label>縣市
-      <select name="county"><option value="">全部</option></select>
-    </label>
-    <label>監理站
-      <select name="dmvNo"><option value="">全部</option></select>
-    </label>
-    <label>從
-      <input type="date" name="from" />
-    </label>
-    <label>到
-      <input type="date" name="to" />
-    </label>
-    <label>最少餘額
-      <input type="number" name="minQuota" min="1" value="1" />
-    </label>
-    <label class="check"><input type="checkbox" name="weekendOnly" value="1" /> 只看週末假日</label>
-    <label class="check"><input type="checkbox" name="watchedOnly" value="1" /> 只看追蹤</label>
-    <button type="button" id="reset" class="ghost">清除</button>
+  <!-- 分區總覽：先回答「到底哪裡還有缺」，再往下鑽 -->
+  <section class="overview">
+    <div class="ovhead">
+      <h2>哪裡還有位</h2>
+      <span class="mini" id="ovSummary"></span>
+    </div>
+    <div id="cards" class="cards"><div class="card skel">載入中…</div></div>
+  </section>
+
+  <form id="filters" class="toolbar">
+    <div class="line">
+      <span class="cap">照類</span>
+      <div id="typeGroups" class="seg"></div>
+      <div id="typeChips" class="chips"></div>
+    </div>
+    <div class="line">
+      <span class="cap">日期</span>
+      <div id="dateChips" class="chips"></div>
+      <span class="custom">
+        <input type="date" name="from" /> <span class="mini">→</span> <input type="date" name="to" />
+      </span>
+    </div>
+    <div class="line">
+      <span class="cap">地點</span>
+      <select name="county"><option value="">全部縣市</option></select>
+      <select name="dmvNo"><option value="">全部監理站</option></select>
+      <span class="cap wauto">餘額 ≥</span>
+      <input type="number" name="minQuota" min="1" value="1" class="tiny" />
+      <label class="chip check"><input type="checkbox" name="weekendOnly" value="1" /> 只看假日</label>
+      <label class="chip check"><input type="checkbox" name="watchedOnly" value="1" /> 只看追蹤 ★</label>
+      <!-- 不要把 id 取成 reset：表單內的元素 id 會遮蔽 form.reset() 方法 -->
+      <button type="button" id="clearFilters" class="ghost">清除</button>
+    </div>
+    <input type="hidden" name="lv1" />
+    <input type="hidden" name="licenseType" />
   </form>
 
   <div class="cols">
@@ -66,11 +80,57 @@
 
     <aside class="panel">
       <h2>剛剛釋出</h2>
-      <p class="hint">退考釋位會出現在這裡。<code>釋出</code> 表示從額滿變成有位。</p>
+      <p class="hint"><code>釋出</code> 表示從額滿變成有位，也就是有人退考。這是唯一會推播給你的事件。</p>
       <ul id="events" class="events"><li class="empty">載入中…</li></ul>
     </aside>
   </div>
 </main>
+
+<!-- 通知設定 -->
+<div id="notifyModal" class="modal" hidden>
+  <div class="sheet">
+    <div class="sheethead">
+      <h2>🔔 通知設定</h2>
+      <button type="button" id="closeNotify" class="ghost">關閉</button>
+    </div>
+    <div class="sheetbody">
+      <p class="hint">
+        只有你 ★ 追蹤的「監理站 × 照類」<b>從額滿變成有位</b>時才會推播。
+        沒有追蹤任何組合的訂閱＝全台通吃（會很吵，不建議）。
+      </p>
+
+      <label class="field">
+        管理密碼
+        <input type="password" id="adminToken" placeholder="部署時設定的 ADMIN_TOKEN" />
+        <span class="mini">存在這台瀏覽器，不會送到別處。訂閱端點靠它保護——沒有它，任何人都能讀走你的 webhook 網址。</span>
+      </label>
+
+      <hr />
+
+      <label class="field">
+        Discord Webhook 網址
+        <input type="url" id="webhookUrl" placeholder="https://discord.com/api/webhooks/…" />
+        <span class="mini">Discord 頻道 → 編輯頻道 → 整合 → Webhook → 建立 → 複製網址</span>
+      </label>
+      <label class="field">
+        備註（選填）
+        <input type="text" id="webhookLabel" placeholder="例如：我的手機" />
+      </label>
+      <p class="mini" id="watchSummary"></p>
+      <div class="row">
+        <button type="button" id="addSub" class="primary">用目前追蹤清單建立訂閱</button>
+      </div>
+      <p class="warn mini">
+        ⚠️ webhook 網址等同密鑰，會存在資料庫裡。任何拿到它的人都能往你的頻道發訊息，
+        外流就到 Discord 刪掉重建一個。
+      </p>
+
+      <hr />
+      <h3>目前的訂閱</h3>
+      <div id="subs" class="subs"><p class="mini">請先輸入管理密碼。</p></div>
+    </div>
+  </div>
+</div>
 
 <footer class="wrap">
   <div id="health" class="health"></div>
