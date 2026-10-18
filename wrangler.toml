@@ -1,10 +1,13 @@
 name = "mvdis-watch"
 main = "src/index.ts"
-compatibility_date = "2025-01-01"
+compatibility_date = "2025-10-01"
 
-# 靜態儀表板。符合檔案的路徑直接由 assets 服務，其餘（/api/*）才進 Worker。
+# 靜態儀表板。符合檔案的路徑直接由 assets 服務，其餘（/api/*、/station/:no、
+# /sitemap.xml）才進 Worker。binding 讓 Worker 能把 station.html 拿來注入每站的
+# 標題與 OG 標籤後再回給瀏覽器。
 [assets]
 directory = "./public"
+binding = "ASSETS"
 
 # 先跑 `npx wrangler d1 create mvdis`，把回傳的 database_id 填進來
 [[d1_databases]]

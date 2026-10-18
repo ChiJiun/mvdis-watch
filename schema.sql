@@ -79,3 +79,7 @@ CREATE TABLE IF NOT EXISTS scan_log (
   duration_ms  INTEGER,
   PRIMARY KEY (license_type, dmv_no)
 );
+
+-- 每站公開頁面：一次撈該站全部照類的場次（含額滿），以及該站的事件流
+CREATE INDEX IF NOT EXISTS idx_slot_station ON slot (dmv_no, exam_date);
+CREATE INDEX IF NOT EXISTS idx_event_station ON slot_event (dmv_no, at DESC);

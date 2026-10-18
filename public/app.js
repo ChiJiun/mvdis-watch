@@ -114,6 +114,7 @@ async function refresh() {
   if (f.watchedOnly) rows = rows.filter((r) => watch.has(watchKey(r.license_type, r.dmv_no)));
 
   renderCards();
+  renderStationLinks();
   renderTypeControls();
   renderDateChips();
   renderTable(rows, f);
@@ -162,6 +163,28 @@ function renderCards() {
         <span class="sub">${area ? area + ' · ' : ''}${o.total} 站${o.slots ? ` · ${o.seats} 個名額` : ''}</span>
         <span class="bar"><i style="width:${(o.slots / max) * 100}%"></i></span>`;
       return b;
+    }),
+  );
+}
+
+/* ---------- 各監理站頁面入口 ---------- */
+
+function renderStationLinks() {
+  const open = new Map();
+  for (const r of overview) open.set(r.dmv_no, (open.get(r.dmv_no) ?? 0) + r.slots);
+  $('#stationLinks').replaceChildren(
+    ...meta.offices.map((o) => {
+      const g = document.createElement('div');
+      g.className = 'stgroup';
+      const chips = meta.stations
+        .filter((s) => s.lv1 === o.lv1)
+        .map((s) => {
+          const n = open.get(s.no) ?? 0;
+          return `<a class="chip${n ? '' : ' zero'}" href="/station/${s.no}" title="${s.address}">${s.name} <span class="n">${n || '滿'}</span></a>`;
+        })
+        .join('');
+      g.innerHTML = `<h3>${o.name}</h3><div class="chips">${chips}</div>`;
+      return g;
     }),
   );
 }
@@ -270,7 +293,7 @@ function renderTable(rows, f = {}) {
       tr.innerHTML = `
         <td class="star"><button type="button" class="starbtn ${on ? 'on' : ''}" data-key="${key}" title="追蹤">${on ? '★' : '☆'}</button></td>
         <td class="${away <= 7 ? 'soon' : ''}">${fmtDate(r.exam_date, r.weekday)}${away <= 7 ? ` <small>${away <= 0 ? '今天' : away + '天後'}</small>` : ''}</td>
-        <td>${st ? st.name : r.dmv_no}</td>
+        <td><a class="st" href="/station/${r.dmv_no}?type=${r.license_type}" title="看這一站的完整場次表與釋位統計">${st ? st.name : r.dmv_no}</a></td>
         <td>${lt ? lt.name : r.license_type}</td>
         <td class="num"><span class="qty ${r.quota <= 3 ? 'low' : ''}">${r.quota}</span></td>
         <td class="desc">${r.session ?? ''}場次 組別${r.grp ?? '-'}</td>
@@ -300,7 +323,7 @@ function renderEvents(rows) {
         : `${e.old_quota} → ${e.new_quota} 位`;
       li.innerHTML = `
         <div><span class="ev-kind ev-${e.kind}">${KIND_LABEL[e.kind] ?? e.kind}</span>
-          <strong>${st ? st.name : e.dmv_no}</strong> · ${lt ? lt.name : e.license_type}</div>
+          <a class="st" href="/station/${e.dmv_no}?type=${e.license_type}"><strong>${st ? st.name : e.dmv_no}</strong></a> · ${lt ? lt.name : e.license_type}</div>
         <div>${fmtDate(e.exam_date)} ${delta}</div>
         <div class="ev-time">${new Date(e.at).toLocaleString('zh-TW', { hour12: false })}</div>`;
       return li;
@@ -477,6 +500,17 @@ $('#avail').addEventListener('click', (e) => {
   saveWatch();
   watchSummary();
   refresh();
+});
+
+$('#share').addEventListener('click', async () => {
+  const btn = $('#share');
+  try {
+    await navigator.clipboard.writeText(location.href);
+    btn.textContent = '✅ 已複製';
+  } catch {
+    prompt('複製這個網址：', location.href);
+  }
+  setTimeout(() => (btn.textContent = '🔗 複製連結'), 1500);
 });
 
 $('#autoRefresh').addEventListener('change', (e) => {

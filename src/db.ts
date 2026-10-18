@@ -356,3 +356,57 @@ export async function scanHealth(db: D1Database) {
     .first();
   return r ?? {};
 }
+
+/* ---------- 每站公開頁面 ---------- */
+
+export type EventRow = {
+  id: number;
+  license_type: string;
+  dmv_no: string;
+  exam_date: string;
+  sec_key: string;
+  kind: EventKind;
+  old_quota: number | null;
+  new_quota: number | null;
+  at: number;
+};
+
+export type ScanLogRow = {
+  license_type: string;
+  dmv_no: string;
+  last_ok: number | null;
+  last_error: string | null;
+  last_error_at: number | null;
+  rows_seen: number;
+  empty_streak: number;
+  duration_ms: number | null;
+};
+
+/** 該站全部照類、今天起的所有場次，**包含額滿**。走 idx_slot_station。 */
+export async function queryStationSlots(db: D1Database, dmvNo: string, from: string) {
+  const r = await db
+    .prepare('SELECT * FROM slot WHERE dmv_no = ? AND exam_date >= ? ORDER BY license_type, exam_date, sec_key')
+    .bind(dmvNo, from)
+    .all<SlotRow>();
+  return r.results ?? [];
+}
+
+/**
+ * 該站最近的事件流，給統計與歷史列表用。走 idx_event_station。
+ * 事件只保留 30 天（見 scan.ts 的 EVENT_RETENTION_MS），所以 since 不會早於那。
+ * 熱門站一天可能有上百筆變動，limit 守住單次讀取量。
+ */
+export async function queryStationEvents(db: D1Database, dmvNo: string, since: number, limit = 5000) {
+  const lim = Math.min(Math.max(limit, 1), 10000);
+  const r = await db
+    .prepare(`SELECT * FROM slot_event WHERE dmv_no = ? AND at >= ? ORDER BY at DESC LIMIT ${lim}`)
+    .bind(dmvNo, since)
+    .all<EventRow>();
+  return r.results ?? [];
+}
+
+/** 該站每個照類的掃描健康度，前端用來標示「上次更新」與「長期無場次」 */
+export async function queryStationScanLog(db: D1Database, dmvNo: string) {
+  const r = await db.prepare('SELECT * FROM scan_log WHERE dmv_no = ?').bind(dmvNo).all<ScanLogRow>();
+  return r.results ?? [];
+}
