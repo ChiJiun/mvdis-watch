@@ -4,6 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>監理站考照餘額監測</title>
+<meta name="description" content="全台 36 個監理站 × 10 種照類的考照場次餘額，哪裡現在有位、剛剛有人退考釋位。每個監理站都有完整場次表與釋位歷史統計，並提供公開 JSON API。" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="監理站考照餘額監測" />
+<meta property="og:description" content="全台監理站考照場次餘額一覽：現在有位、剛剛釋位、各站完整場次表與釋位統計。" />
+<meta name="twitter:card" content="summary" />
 <link rel="stylesheet" href="/style.css" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛵</text></svg>" />
 </head>
@@ -14,6 +19,7 @@
     <div class="status">
       <span id="lastScan" class="pill">載入中…</span>
       <label class="pill toggle"><input type="checkbox" id="autoRefresh" checked /> 自動更新</label>
+      <button type="button" id="share" class="pill btn" title="複製含目前篩選條件的網址">🔗 複製連結</button>
       <button type="button" id="openNotify" class="pill btn">🔔 通知設定</button>
     </div>
   </div>
@@ -28,6 +34,12 @@
     </div>
     <div id="cards" class="cards"><div class="card skel">載入中…</div></div>
   </section>
+
+  <!-- 每站頁面入口：完整場次表（含額滿）、釋位統計，網址可直接分享 -->
+  <details class="stations">
+    <summary>各監理站頁面：完整場次表（含額滿）與釋位統計</summary>
+    <div id="stationLinks" class="stgroups"></div>
+  </details>
 
   <form id="filters" class="toolbar">
     <div class="line">
@@ -134,6 +146,7 @@
 
 <footer class="wrap">
   <div id="health" class="health"></div>
+  <p class="mini">資料也能直接取用：<a href="/api">公開 JSON API</a>（30 秒快取，允許跨網域讀取）。</p>
   <p class="disclaimer">
     資料每分鐘分批抓取自
     <a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener">監理服務網考照預約報名</a>，

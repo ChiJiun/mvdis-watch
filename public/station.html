@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--HEAD-->
+<link rel="stylesheet" href="/style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛵</text></svg>" />
+</head>
+<body>
+<header>
+  <div class="wrap head">
+    <h1><a href="/" class="home">🛵 監理站考照餘額監測</a><span class="sep">/</span><span id="crumb">載入中…</span></h1>
+    <div class="status">
+      <span id="lastScan" class="pill">載入中…</span>
+      <button type="button" id="share" class="pill btn" title="複製這一頁的網址">🔗 複製連結</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel sthead">
+    <div class="grow">
+      <h2 id="stTitle">載入中…</h2>
+      <p class="mini" id="stMeta"></p>
+    </div>
+    <label class="switch mini">換一站
+      <select id="switch"><option value="">選擇監理站</option></select>
+    </label>
+  </section>
+
+  <div class="line types">
+    <span class="cap">照類</span>
+    <div id="typeChips" class="chips"></div>
+  </div>
+
+  <section id="tiles" class="tiles"></section>
+  <p class="mini" id="scanState"></p>
+
+  <div class="cols">
+    <section class="panel">
+      <h2>完整場次表 <span id="count" class="count"></span></h2>
+      <p class="hint">含額滿的場次。額滿的場次一旦有人退考就會變成有位，這裡會在下一輪掃描後更新。</p>
+      <div class="line">
+        <label class="chip check"><input type="checkbox" id="onlyOpen" /> 只看有位</label>
+        <label class="chip check"><input type="checkbox" id="onlyWeekend" /> 只看假日</label>
+      </div>
+      <div class="tablewrap">
+        <table id="slots">
+          <thead>
+            <tr>
+              <th>考試日期</th>
+              <th>照類</th>
+              <th>場次</th>
+              <th class="num">餘額</th>
+              <th>最後變動</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="6" class="empty">載入中…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="stack">
+      <section class="panel">
+        <h2>釋位時段分布</h2>
+        <p class="hint" id="hourHint">最近 30 天釋位（額滿 → 有位）發生在台灣時間哪個小時。</p>
+        <div id="hourChart" class="bars hours" role="img" aria-label="每小時釋位次數"></div>
+        <div class="axis"><span>0 時</span><span>6</span><span>12</span><span>18</span><span>23 時</span></div>
+      </section>
+
+      <section class="panel">
+        <h2>每日釋位次數</h2>
+        <p class="hint">最近 30 天，最右邊是今天。</p>
+        <div id="dayChart" class="bars days" role="img" aria-label="每日釋位次數"></div>
+        <div class="axis"><span>30 天前</span><span>今天</span></div>
+      </section>
+
+      <section class="panel">
+        <h2>變化紀錄 <span id="evCount" class="count"></span></h2>
+        <ul id="events" class="events"><li class="empty">載入中…</li></ul>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<footer class="wrap">
+  <p class="mini">這一頁的資料也能直接取用：<a id="apiLink" href="/api">JSON API</a>（30 秒快取，允許跨網域讀取）。</p>
+  <p class="disclaimer">
+    資料每分鐘分批抓取自
+    <a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener">監理服務網考照預約報名</a>，
+    非即時，僅供參考。實際餘額與報名一律以官網為準；本站不代辦報名。
+  </p>
+</footer>
+
+<script type="module" src="/station.js"></script>
+</body>
+</html>

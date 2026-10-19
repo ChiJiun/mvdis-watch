@@ -193,3 +193,61 @@ tr.watched { background: var(--good-bg); }
 footer { padding: 22px 16px 40px; }
 .health { font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
 .disclaimer { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+/* ---------- 每站頁面 ---------- */
+h1 .home { color: inherit; text-decoration: none; }
+h1 .home:hover { color: var(--accent); }
+h1 .sep { color: var(--line); margin: 0 8px; font-weight: 400; }
+.sthead { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; margin: 18px 0 14px; }
+.sthead .grow { flex: 1 1 260px; min-width: 0; }
+.sthead h2 { font-size: 22px; margin: 0 0 4px; }
+.sthead .mini { margin: 0; }
+.switch { display: flex; flex-direction: column; gap: 4px; }
+.line.types { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.tile {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 13px; display: flex; flex-direction: column; gap: 3px;
+}
+.tile .k { font-size: 12px; color: var(--muted); font-weight: 600; }
+.tile .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.tile.good .v { color: var(--good); }
+.tile .s { font-size: 11px; color: var(--muted); }
+#scanState { margin: 0 0 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+
+.stack { display: flex; flex-direction: column; gap: 16px; }
+tr.full td { color: var(--muted); }
+.fullbadge {
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px;
+}
+.events strong { color: var(--ink); }
+
+/* 單一序列長條：細、頂端 4px 圓角、底部貼齊基線、條間 2px 留白 */
+.bars { display: flex; align-items: flex-end; gap: 2px; height: 90px; padding-top: 4px; }
+.bars .bar { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 0; cursor: default; }
+.bars .bar i { display: block; width: 100%; max-width: 24px; margin: 0 auto; min-height: 2px; background: var(--accent); border-radius: 4px 4px 0 0; opacity: .75; }
+.bars .bar.peak i { opacity: 1; }
+.bars .bar:hover i { opacity: 1; filter: brightness(1.15); }
+.bars.empty .bar i { background: var(--line); }
+.axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 4px; margin-top: 2px; }
+
+/* 首頁：各監理站連結與表格內的站名連結 */
+.stations { margin: 0 0 16px; }
+.stations summary { cursor: pointer; font-size: 13px; color: var(--muted); font-weight: 600; }
+.stgroups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 18px; margin-top: 10px; }
+.stgroup h3 { font-size: 12px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.stgroup .chips a { text-decoration: none; }
+.stgroup .chips a.chip.zero { opacity: .55; }
+td a.st { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--muted); }
+td a.st:hover, .events a.st:hover { color: var(--accent); }
+.events a.st { color: inherit; text-decoration: none; }
+@media (max-width: 640px) {
+  .sthead { flex-direction: column; }
+  .sthead .grow { flex: 0 0 auto; } /* 直排時 flex-basis 會變成高度，不能沿用 260px */
+  .sthead h2 { font-size: 19px; }
+  .switch { width: 100%; }
+  .switch select { width: 100%; }
+  h1 { font-size: 16px; }
+}
