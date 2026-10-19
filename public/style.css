@@ -202,6 +202,9 @@ h1 .sep { color: var(--line); margin: 0 8px; font-weight: 400; }
 .sthead .grow { flex: 1 1 260px; min-width: 0; }
 .sthead h2 { font-size: 22px; margin: 0 0 4px; }
 .sthead .mini { margin: 0; }
+.sthead .contact { margin-top: 4px; }
+.sthead .area { margin-top: 6px; line-height: 1.55; }
+.sthead .area .k { font-weight: 600; margin-right: 6px; }
 .switch { display: flex; flex-direction: column; gap: 4px; }
 .line.types { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
 

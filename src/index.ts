@@ -6,7 +6,8 @@
  * 沒有快取的話每個訪客每 30 秒重讀一次 D1，熱門時段很快就會撞到免費方案的
  * 每日讀取列數上限；有了快取，不管多少人開著頁面，D1 每 30 秒最多只被讀一次。
  */
-import { LICENSE_TYPES, OFFICES, STATIONS, STATION_BY_NO, OFFICE_BY_LV1 } from './catalogue.ts';
+import { LICENSE_TYPES, OFFICES, STATIONS, STATION_BY_NO, OFFICE_BY_LV1, type Station } from './catalogue.ts';
+import { STATION_INFO, STATION_INFO_SOURCE } from './station-info.ts';
 import { runScanTick, todayIso, type Env as ScanEnv } from './scan.ts';
 import {
   queryAvailable,
@@ -56,6 +57,10 @@ const json = (data: unknown, status = 200, extra: Record<string, string> = {}) =
 const publicJson = (data: unknown, status = 200) =>
   json(data, status, { ...CORS, 'Cache-Control': `public, max-age=${PUBLIC_TTL}` });
 
+/** 站別對照表加上開放資料的電話、傳真、所轄區域；對不到資料的站這三欄就是 undefined */
+const withInfo = (s: Station) => ({ ...s, ...STATION_INFO[s.no] });
+const STATIONS_WITH_INFO = STATIONS.map(withInfo);
+
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -68,14 +73,15 @@ async function publicApi(p: string, q: URLSearchParams, env: Env): Promise<Respo
       description: '監理站考照場次餘額的公開 JSON API。資料每分鐘分批抓取自監理服務網，非即時，僅供參考。',
       cacheSeconds: PUBLIC_TTL,
       endpoints: {
-        '/api/meta': '站別、照類對照與掃描健康度',
+        '/api/meta': '站別（含電話、傳真、所轄區域）、照類對照與掃描健康度',
         '/api/available': '目前有餘額的場次。參數：dmvNo, licenseType, county, lv1, from, to, weekendOnly=1, minQuota, limit',
         '/api/overview': '每個「監理站 × 照類」目前有位的場次數與名額數',
-        '/api/station?dmvNo=41': '單一監理站的完整場次表（含額滿）、每照類的釋位統計與最近事件',
+        '/api/station?dmvNo=41': '單一監理站的基本資料、完整場次表（含額滿）、每照類的釋位統計與最近事件',
         '/api/slots?licenseType=3&dmvNo=41': '單一「照類 × 監理站」的完整場次表',
         '/api/events': '最近的變化事件流。參數：kind, limit',
       },
       source: 'https://www.mvdis.gov.tw/m3-emv-trn/exm/locations',
+      stationInfoSource: STATION_INFO_SOURCE,
     });
   }
 
@@ -85,7 +91,8 @@ async function publicApi(p: string, q: URLSearchParams, env: Env): Promise<Respo
     return publicJson({
       licenseTypes: LICENSE_TYPES,
       offices: OFFICES,
-      stations: STATIONS,
+      stations: STATIONS_WITH_INFO,
+      stationInfoSource: STATION_INFO_SOURCE,
       today: todayIso(),
       health,
       lastTick: lastTick ? Number(lastTick) : null,
@@ -159,7 +166,8 @@ async function publicApi(p: string, q: URLSearchParams, env: Env): Promise<Respo
     const stats = [...releaseStats(events, now, STATS_DAYS).values()];
     const lastTick = state.get('last_tick');
     return publicJson({
-      station,
+      station: withInfo(station),
+      stationInfoSource: STATION_INFO_SOURCE,
       office: OFFICE_BY_LV1.get(station.lv1) ?? null,
       licenseTypes: LICENSE_TYPES,
       today: todayIso(),
@@ -186,7 +194,8 @@ async function stationPage(req: Request, env: Env, dmvNo: string, origin: string
   if (!asset.ok) return new Response('station.html missing', { status: 500 });
 
   const title = `${station.name} 考照場次餘額`;
-  const desc = `${station.name}（${station.address}）全部照類的考照場次表、目前餘額、釋位歷史統計。資料每分鐘分批抓取自監理服務網，非即時。`;
+  const info = STATION_INFO[station.no];
+  const desc = `${station.name}（${station.address}${info ? `，電話 ${info.phone}` : ''}）全部照類的考照場次表、目前餘額、釋位歷史統計。資料每分鐘分批抓取自監理服務網，非即時。`;
   const url = `${origin}/station/${dmvNo}`;
   const head = [
     `<title>${escapeHtml(title)}</title>`,
