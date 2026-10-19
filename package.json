@@ -6,6 +6,7 @@
   "description": "監理站汽機車考照報名餘額監測",
   "scripts": {
     "sweep": "node --experimental-strip-types --no-warnings scripts/sweep.mjs",
+    "stations:info": "node --experimental-strip-types --no-warnings scripts/stations-info.mjs",
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev --port 8788 --test-scheduled",
     "tick": "node scripts/tick.mjs",
