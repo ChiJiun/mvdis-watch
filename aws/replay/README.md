@@ -18,7 +18,7 @@ npm run typecheck
 | 路徑 | 說明 |
 |---|---|
 | `GET /healthz` | ALB／健康檢查，回 `{ ok, combos, requests, uptimeMs }` |
-| `POST /m3-emv-trn/exm/locations` | 表單欄位與官網相同（`method=query`、`licenseTypeCode`、`dmvNoLv1`、`dmvNo`…），回傳整頁 HTML。`dmvNoLv1` 和站別對不上、或組合不存在時，照樣回 200 但表格是空的。其他 `method` 回 400、非 POST 回 405 |
+| `POST /m3-emv-trn/exm/locations` | 接受契約 §4.3（`contracts.ts` 的 `mvdisFormFields`）的全部欄位，回傳整頁 HTML。`expectExamDateStr`（民國 yyyMMdd）只列該日（含）之後的場次，格式不對則不過濾；`onlyWeekend=true` 只列星期六、日（不模擬國定假日）；`_onlyWeekend`、`secDateStr`、`secId`、`divId` 收下不處理。`dmvNoLv1` 和站別對不上、或組合不存在時，照樣回 200 但表格是空的。其他 `method` 回 400、非 POST 回 405 |
 | `POST /admin/reset` | 還原成 seed 決定的初始狀態；可帶 JSON 同時換參數，例如 `{"flipProb":0,"tickMs":1000,"flipsPerTick":2,"delayMs":500}`。未知欄位或越界值回 400 |
 | `GET /admin/stats` | 組合數、場次數、有位數、請求數、擾動事件數與目前設定 |
 | `GET /admin/events?after=<seq>&kind=released&limit=5000` | 擾動紀錄（E3 用來算「釋位 → 偵測」延遲） |

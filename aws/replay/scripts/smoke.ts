@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSlots, rocToday } from '../../../src/mvdis.ts';
+import { mvdisFormFields } from '../../shared/contracts.ts';
 import { allCombos } from '../../../src/catalogue.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -40,17 +41,8 @@ try {
     const res = await fetch(`${BASE}/m3-emv-trn/exm/locations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        method: 'query',
-        licenseTypeCode: c.licenseType,
-        expectExamDateStr: rocToday(),
-        _onlyWeekend: 'on',
-        dmvNoLv1: c.lv1,
-        dmvNo: c.dmvNo,
-        secDateStr: '',
-        secId: '',
-        divId: '',
-      }),
+      // 契約 §4.3：和 worker 用同一個函式組表單
+      body: new URLSearchParams(mvdisFormFields({ licenseType: c.licenseType, lv1: c.lv1, dmvNo: c.dmvNo, dateStr: rocToday() })),
     });
     if (!res.ok) throw new Error(`${c.licenseType}|${c.dmvNo} HTTP ${res.status}`);
     const slots = parseSlots(await res.text(), c.licenseType, c.dmvNo);

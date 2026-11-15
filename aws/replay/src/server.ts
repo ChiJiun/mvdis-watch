@@ -9,7 +9,16 @@
  * 只用 node:http，不引入框架，打包後是單一檔案。
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { renderPage, type FlipEvent, type PageTemplate, type ReplayConfig, ReplayState } from './generator.ts';
+import {
+  filterSlots,
+  renderPage,
+  rocDateStrToIso,
+  type FlipEvent,
+  type PageTemplate,
+  type ReplayConfig,
+  ReplayState,
+  type SlotQuery,
+} from './generator.ts';
 
 export const LOCATIONS_PATH = '/m3-emv-trn/exm/locations';
 const MAX_BODY = 16 * 1024;
@@ -103,6 +112,12 @@ export function createReplayServer(state: ReplayState, template: PageTemplate, o
       const dmvNo = form.get('dmvNo');
       if (method !== 'query') return text(res, 400, `replay 只支援 method=query（收到 ${method}）`);
       if (!licenseType || !lv1 || !dmvNo) return text(res, 400, '缺少 licenseTypeCode / dmvNoLv1 / dmvNo');
+      // 其餘欄位（契約 §4.3／contracts.ts 的 mvdisFormFields）：expectExamDateStr 決定從哪天起列出，
+      // onlyWeekend=true 只列週末；_onlyWeekend、secDateStr、secId、divId 官網查詢時都是固定值，收下不處理
+      const query: SlotQuery = {
+        fromIso: rocDateStrToIso(form.get('expectExamDateStr')),
+        onlyWeekend: form.get('onlyWeekend') === 'true',
+      };
 
       state.requests++;
       const wait = options.delayMs + (options.jitterMs > 0 ? (Math.random() * 2 - 1) * options.jitterMs : 0);
@@ -111,7 +126,7 @@ export function createReplayServer(state: ReplayState, template: PageTemplate, o
       // 擾動發生在「產生回應的那一刻」，所以這次回應就反映翻轉後的名額
       const combo = state.lookup(licenseType, lv1, dmvNo);
       if (combo) state.perturbOnRequest(combo, Date.now());
-      return send(res, 200, renderPage(template, combo?.slots ?? []), 'text/html;charset=UTF-8');
+      return send(res, 200, renderPage(template, filterSlots(combo?.slots ?? [], query)), 'text/html;charset=UTF-8');
     }
 
     if (path.startsWith('/admin/')) {

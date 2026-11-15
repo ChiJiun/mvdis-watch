@@ -12,7 +12,17 @@ import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import { parseSlots, FULL } from '../../../src/mvdis.ts';
 import { allCombos } from '../../../src/catalogue.ts';
-import { DEFAULT_CONFIG, ReplayState, renderPage, renderRow, splitTemplate, type SlotState } from '../src/generator.ts';
+import { mvdisFormFields } from '../../shared/contracts.ts';
+import {
+  DEFAULT_CONFIG,
+  filterSlots,
+  ReplayState,
+  renderPage,
+  renderRow,
+  rocDateStrToIso,
+  splitTemplate,
+  type SlotState,
+} from '../src/generator.ts';
 import { createReplayServer, LOCATIONS_PATH, validateReset } from '../src/server.ts';
 import { loadConfig } from '../src/config.ts';
 
@@ -213,18 +223,48 @@ async function withServer(
   }
 }
 
-const form = (licenseType: string, lv1: string, dmvNo: string, method = 'query') =>
-  new URLSearchParams({
-    method,
-    licenseTypeCode: licenseType,
-    expectExamDateStr: '1151116',
-    _onlyWeekend: 'on',
-    dmvNoLv1: lv1,
-    dmvNo,
-    secDateStr: '',
-    secId: '',
-    divId: '',
+/** 一律用契約的 mvdisFormFields 組表單（CONTRACTS.md §4.3），確保 Replay 接受的欄位和 worker 送的一致 */
+const form = (licenseType: string, lv1: string, dmvNo: string, method = 'query', extra: { dateStr?: string; onlyWeekend?: boolean } = {}) => {
+  const f = mvdisFormFields({ licenseType, lv1, dmvNo, dateStr: extra.dateStr ?? '1151116', onlyWeekend: extra.onlyWeekend });
+  f.method = method;
+  return new URLSearchParams(f);
+};
+
+test('HTTP：mvdisFormFields 的 expectExamDateStr／onlyWeekend 會過濾場次', async () => {
+  await withServer({}, async (base) => {
+    const all = new ReplayState({ ...DEFAULT_CONFIG, flipProb: 0 }, NOW);
+    // 找一個有星期六場次的組合
+    const combo = [...all.combos.values()].find((c) => c.slots.some((s) => s.weekday === '星期六'))!;
+    const post = async (extra: { dateStr?: string; onlyWeekend?: boolean }) =>
+      parseSlots(
+        await (await fetch(base + LOCATIONS_PATH, { method: 'POST', body: form(combo.licenseType, combo.lv1, combo.dmvNo, 'query', extra) })).text(),
+        combo.licenseType,
+        combo.dmvNo,
+      );
+    assert.equal((await post({})).length, combo.slots.length);
+    const weekend = await post({ onlyWeekend: true });
+    assert.ok(weekend.length > 0 && weekend.length < combo.slots.length);
+    assert.ok(weekend.every((s) => s.isWeekend));
+    const mid = combo.slots[Math.floor(combo.slots.length / 2)].examDate; // yyyy-mm-dd
+    const [y, m, d] = mid.split('-');
+    const later = await post({ dateStr: `${Number(y) - 1911}${m}${d}` });
+    assert.ok(later.length > 0 && later.length < combo.slots.length);
+    assert.ok(later.every((s) => s.examDate >= mid));
+    // 日期格式不對：不過濾、不報錯
+    assert.equal((await post({ dateStr: 'abc' })).length, combo.slots.length);
   });
+});
+
+test('rocDateStrToIso／filterSlots', () => {
+  assert.equal(rocDateStrToIso('1151116'), '2026-11-16');
+  assert.equal(rocDateStrToIso('0991231'), '2010-12-31');
+  assert.equal(rocDateStrToIso('1151332'), null);
+  assert.equal(rocDateStrToIso(''), null);
+  assert.equal(rocDateStrToIso(null), null);
+  const slots = new ReplayState(DEFAULT_CONFIG, NOW).lookup('3', '60', '63')!.slots;
+  assert.equal(filterSlots(slots, { fromIso: null, onlyWeekend: false }), slots);
+  assert.deepEqual(filterSlots(slots, { fromIso: '2999-01-01', onlyWeekend: false }), []);
+});
 
 test('HTTP：和原型 querySlots 相同的表單請求，回應可被 parseSlots 解析', async () => {
   await withServer({}, async (base) => {

@@ -141,6 +141,19 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(s["notInLog"], 1)
         self.assertEqual(s["redelivered"], 1)
         self.assertEqual(s["byAz"], {"us-east-1a": 2, "us-east-1b": 1})
+        self.assertEqual((s["stale"], s["rejected"], s["committedNotFinished"]), (0, 0, 0))
+
+    def test_summarize_counts_new_outcomes_and_committed_not_finished(self):
+        combos = [{"licenseType": "3", "dmvNo": "63"}]
+        rows = [
+            {**self.row("3", "63", 1000, 1100, None, outcome="ok"), "committed_at": 1200},
+            {**self.row("3", "63", 1000, 1100, 1300, outcome="rejected")},
+            {**self.row("3", "63", 1000, None, 1100, outcome="stale")},
+        ]
+        s = analysis.summarize_run(rows, combos, expected_tasks=3)
+        self.assertEqual((s["stale"], s["rejected"], s["committedNotFinished"]), (1, 1, 1))
+        # ok 那筆還沒 finished，不算完成 → 漏掃 1 組
+        self.assertEqual(s["missingCombos"], 1)
 
     def test_max_gap_includes_boundaries(self):
         self.assertEqual(analysis.max_gap([10, 12, 30, 31]), (18, 12))

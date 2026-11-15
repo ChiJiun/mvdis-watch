@@ -54,7 +54,9 @@ AWS Details 貼到 `~/.aws/credentials`（約 4 小時過期）。
 實驗需要 infra 用下列變數重新 `terraform apply`（這些是 infra 線的變數，不是這裡的設定）：
 
 - `replay_enabled = true`：建立 Replay 站（預設關閉）。
-- `worker_mvdis_base_url = <replay_base_url>`：worker 收到 replay 任務時打這個位址。worker 會拒絕把 replay 任務送到官網。
+- worker 的環境變數 `REPLAY_BASE_URL` 要設成 `replay_base_url`（契約 §3；infra 對應的 Terraform 變數名稱以 infra README 為準）。
+  worker 收到 replay 任務時只打這個位址；未設定、或指向 `mvdis.gov.tw` 時，worker 會把任務記成 `rejected`（契約 §4.2），
+  這時實驗結果的 `scanTaskLog.rejected` 會大於 0、漏掃組數等於 360。
 - E2 前：`worker_min_size = 2`（預設 1），確保兩個 AZ 各有 worker；API ASG 同理。
 - E3 跑到 8 台：`worker_max_size >= 8`（預設就是 8）。
 

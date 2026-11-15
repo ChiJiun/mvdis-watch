@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 RUN_ROWS_SQL = """
 SELECT task_id::text, run_id, license_type, dmv_no, tier, target,
-       enqueued_at, started_at, finished_at, outcome, error, worker_id, az, receive_count
+       enqueued_at, started_at, committed_at, finished_at, outcome, error, worker_id, az, receive_count
 FROM scan_task_log WHERE run_id = %s
 """
 

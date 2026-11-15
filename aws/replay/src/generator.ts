@@ -178,6 +178,33 @@ export function generateCombo(licenseType: string, station: Station, opts: GenOp
   return combo;
 }
 
+// ───────────── 查詢條件 ─────────────
+
+export type SlotQuery = {
+  /** ISO yyyy-mm-dd；只列這天（含）之後的場次，null = 不限 */
+  fromIso: string | null;
+  /** 官網「僅查周末及假日場次」；模擬站不模擬國定假日，只看星期六、日 */
+  onlyWeekend: boolean;
+};
+
+/** 民國日期 yyyMMdd（例如 "1151116"）→ "2026-11-16"；格式不對回 null（不過濾，不報錯） */
+export function rocDateStrToIso(s: string | null): string | null {
+  const m = s?.match(/^(\d{3})(\d{2})(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]) + 1911;
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return `${y}-${m[2]}-${m[3]}`;
+}
+
+export function filterSlots(slots: SlotState[], q: SlotQuery): SlotState[] {
+  if (!q.fromIso && !q.onlyWeekend) return slots;
+  return slots.filter(
+    (s) => (!q.fromIso || s.examDate >= q.fromIso) && (!q.onlyWeekend || s.weekday === '星期六' || s.weekday === '星期日'),
+  );
+}
+
 // ───────────── HTML ─────────────
 
 /** 官網頁面一律是 CRLF 換行 */

@@ -26,6 +26,7 @@ def summarize_run(
 
     - 耗時 = 最後一筆 finished_at − 最早一筆 enqueued_at（含排隊時間，是使用者看得到的「掃完一輪」）
     - 漏掃組數 = 期望的組合中，沒有任何一筆 outcome='ok' 的組數（E2 目標為 0）
+    - 一律以 finished_at 為準（契約 §5：S3／SNS 副作用都完成才寫）；committed_at 只用來看卡在副作用的任務
     """
     finished = [r for r in rows if r.get("finished_at") is not None]
     ok = [r for r in finished if r.get("outcome") == "ok"]
@@ -54,6 +55,11 @@ def summarize_run(
         "ok": len(ok),
         "errors": sum(1 for r in finished if r.get("outcome") == "error"),
         "skipped": sum(1 for r in finished if r.get("outcome") == "skipped"),
+        # 契約 §4.2：stale（live 過期）與 rejected（守門拒絕）；實驗只送 replay，這兩個應該都是 0
+        "stale": sum(1 for r in rows if r.get("outcome") == "stale"),
+        "rejected": sum(1 for r in rows if r.get("outcome") == "rejected"),
+        # DB 已提交但 S3／SNS 副作用還沒做完（finished_at 為空）的任務數，契約 §5
+        "committedNotFinished": sum(1 for r in rows if r.get("committed_at") is not None and r.get("finished_at") is None),
         "unfinished": len(rows) - len(finished),
         "notInLog": max(expected_tasks - len(rows), 0),
         "redelivered": sum(1 for r in rows if (r.get("receive_count") or 1) > 1),
