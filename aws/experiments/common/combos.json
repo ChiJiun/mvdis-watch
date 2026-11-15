@@ -1,0 +1,2399 @@
+{
+ "generatedFrom": "src/catalogue.ts",
+ "licenseTypes": [
+  {
+   "code": "5",
+   "name": "普通輕型機車 (50cc以下)",
+   "hot": true
+  },
+  {
+   "code": "3",
+   "name": "普通重型機車",
+   "hot": true
+  },
+  {
+   "code": "A",
+   "name": "普通小型車",
+   "hot": true
+  },
+  {
+   "code": "B",
+   "name": "職業小型車",
+   "hot": false
+  },
+  {
+   "code": "C",
+   "name": "普通大貨車",
+   "hot": false
+  },
+  {
+   "code": "D",
+   "name": "職業大貨車",
+   "hot": false
+  },
+  {
+   "code": "E",
+   "name": "普通大客車",
+   "hot": false
+  },
+  {
+   "code": "F",
+   "name": "職業大客車",
+   "hot": false
+  },
+  {
+   "code": "G",
+   "name": "普通聯結車",
+   "hot": false
+  },
+  {
+   "code": "H",
+   "name": "職業聯結車",
+   "hot": false
+  }
+ ],
+ "stations": [
+  {
+   "no": "21",
+   "lv1": "20",
+   "name": "士林監理站"
+  },
+  {
+   "no": "25",
+   "lv1": "20",
+   "name": "基隆監理站"
+  },
+  {
+   "no": "26",
+   "lv1": "20",
+   "name": "金門監理站"
+  },
+  {
+   "no": "28",
+   "lv1": "20",
+   "name": "連江監理站"
+  },
+  {
+   "no": "40",
+   "lv1": "40",
+   "name": "臺北區監理所"
+  },
+  {
+   "no": "41",
+   "lv1": "40",
+   "name": "板橋監理站"
+  },
+  {
+   "no": "43",
+   "lv1": "40",
+   "name": "宜蘭監理站"
+  },
+  {
+   "no": "44",
+   "lv1": "40",
+   "name": "花蓮監理站"
+  },
+  {
+   "no": "45",
+   "lv1": "40",
+   "name": "玉里監理分站"
+  },
+  {
+   "no": "46",
+   "lv1": "40",
+   "name": "蘆洲監理站"
+  },
+  {
+   "no": "50",
+   "lv1": "50",
+   "name": "新竹區監理所"
+  },
+  {
+   "no": "51",
+   "lv1": "50",
+   "name": "新竹市監理站"
+  },
+  {
+   "no": "52",
+   "lv1": "50",
+   "name": "桃園監理站"
+  },
+  {
+   "no": "53",
+   "lv1": "50",
+   "name": "中壢監理站"
+  },
+  {
+   "no": "54",
+   "lv1": "50",
+   "name": "苗栗監理站"
+  },
+  {
+   "no": "60",
+   "lv1": "60",
+   "name": "臺中區監理所"
+  },
+  {
+   "no": "61",
+   "lv1": "60",
+   "name": "臺中市監理站"
+  },
+  {
+   "no": "62",
+   "lv1": "60",
+   "name": "埔里監理分站"
+  },
+  {
+   "no": "63",
+   "lv1": "60",
+   "name": "豐原監理站"
+  },
+  {
+   "no": "64",
+   "lv1": "60",
+   "name": "彰化監理站"
+  },
+  {
+   "no": "65",
+   "lv1": "60",
+   "name": "南投監理站"
+  },
+  {
+   "no": "70",
+   "lv1": "70",
+   "name": "嘉義區監理所"
+  },
+  {
+   "no": "71",
+   "lv1": "70",
+   "name": "東勢監理分站"
+  },
+  {
+   "no": "72",
+   "lv1": "70",
+   "name": "雲林監理站"
+  },
+  {
+   "no": "73",
+   "lv1": "70",
+   "name": "新營監理站"
+  },
+  {
+   "no": "74",
+   "lv1": "70",
+   "name": "臺南監理站"
+  },
+  {
+   "no": "75",
+   "lv1": "70",
+   "name": "麻豆監理站"
+  },
+  {
+   "no": "76",
+   "lv1": "70",
+   "name": "嘉義市監理站"
+  },
+  {
+   "no": "30",
+   "lv1": "30",
+   "name": "高雄市區監理所"
+  },
+  {
+   "no": "31",
+   "lv1": "30",
+   "name": "苓雅監理站"
+  },
+  {
+   "no": "33",
+   "lv1": "30",
+   "name": "旗山監理站"
+  },
+  {
+   "no": "80",
+   "lv1": "80",
+   "name": "高雄區監理所"
+  },
+  {
+   "no": "81",
+   "lv1": "80",
+   "name": "臺東監理站"
+  },
+  {
+   "no": "82",
+   "lv1": "80",
+   "name": "屏東監理站"
+  },
+  {
+   "no": "83",
+   "lv1": "80",
+   "name": "恆春監理分站"
+  },
+  {
+   "no": "84",
+   "lv1": "80",
+   "name": "澎湖監理站"
+  }
+ ],
+ "combos": [
+  {
+   "licenseType": "5",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": true
+  },
+  {
+   "licenseType": "5",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": true
+  },
+  {
+   "licenseType": "3",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": true
+  },
+  {
+   "licenseType": "A",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": true
+  },
+  {
+   "licenseType": "B",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": false
+  },
+  {
+   "licenseType": "B",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": false
+  },
+  {
+   "licenseType": "C",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": false
+  },
+  {
+   "licenseType": "D",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": false
+  },
+  {
+   "licenseType": "E",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": false
+  },
+  {
+   "licenseType": "F",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": false
+  },
+  {
+   "licenseType": "G",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "20",
+   "dmvNo": "21",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "20",
+   "dmvNo": "25",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "20",
+   "dmvNo": "26",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "20",
+   "dmvNo": "28",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "40",
+   "dmvNo": "40",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "40",
+   "dmvNo": "41",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "40",
+   "dmvNo": "43",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "40",
+   "dmvNo": "44",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "40",
+   "dmvNo": "45",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "40",
+   "dmvNo": "46",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "50",
+   "dmvNo": "50",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "50",
+   "dmvNo": "51",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "50",
+   "dmvNo": "52",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "50",
+   "dmvNo": "53",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "50",
+   "dmvNo": "54",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "60",
+   "dmvNo": "60",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "60",
+   "dmvNo": "61",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "60",
+   "dmvNo": "62",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "60",
+   "dmvNo": "63",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "60",
+   "dmvNo": "64",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "60",
+   "dmvNo": "65",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "70",
+   "dmvNo": "70",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "70",
+   "dmvNo": "71",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "70",
+   "dmvNo": "72",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "70",
+   "dmvNo": "73",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "70",
+   "dmvNo": "74",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "70",
+   "dmvNo": "75",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "70",
+   "dmvNo": "76",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "30",
+   "dmvNo": "30",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "30",
+   "dmvNo": "31",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "30",
+   "dmvNo": "33",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "80",
+   "dmvNo": "80",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "80",
+   "dmvNo": "81",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "80",
+   "dmvNo": "82",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "80",
+   "dmvNo": "83",
+   "hot": false
+  },
+  {
+   "licenseType": "H",
+   "lv1": "80",
+   "dmvNo": "84",
+   "hot": false
+  }
+ ]
+}
