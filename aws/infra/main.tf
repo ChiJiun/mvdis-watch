@@ -43,6 +43,7 @@ locals {
   lambda_artifacts = {
     dispatcher = "${local.app_dist_dir}/dispatcher.zip"
     notifier   = "${local.app_dist_dir}/notifier.zip"
+    janitor    = "${local.app_dist_dir}/janitor.zip"
   }
 
   # 只上傳已經打包好的檔案；還沒打包的服務，instance 會由 systemd 每 10 秒重試下載。
@@ -51,5 +52,6 @@ locals {
   # 把產物的 md5 放進 user data：產物一變，launch template 就出新版本並觸發 instance refresh。
   release_hash = { for name, path in local.ec2_artifacts : name => fileexists(path) ? filemd5(path) : "not-built" }
 
-  mvdis_live_base_url = "https://www.mvdis.gov.tw"
+  # 契約 §3：MVDIS_LIVE_URL 固定為官網 origin，不開放用變數修改
+  mvdis_live_url = "https://www.mvdis.gov.tw"
 }

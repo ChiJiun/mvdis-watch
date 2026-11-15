@@ -87,14 +87,15 @@ output "api_asg_name" {
 }
 
 output "replay_base_url" {
-  description = "Replay 站內網位址；實驗時設成 worker_mvdis_base_url"
-  value       = var.replay_enabled ? "http://${var.replay_private_ip}:8080" : null
+  description = "Replay 站內網位址（worker 的 REPLAY_BASE_URL）；replay_enabled = false 時為 null"
+  value       = local.replay_base_url
 }
 
 output "lambda_functions" {
   value = {
     dispatcher = aws_lambda_function.dispatcher.function_name
     notifier   = aws_lambda_function.notifier.function_name
+    janitor    = aws_lambda_function.janitor.function_name
   }
 }
 

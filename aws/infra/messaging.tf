@@ -9,8 +9,8 @@ resource "aws_sqs_queue" "scan_dlq" {
 resource "aws_sqs_queue" "scan" {
   name                       = "mvdis-scan"
   visibility_timeout_seconds = 60
-  message_retention_seconds  = 86400 # 1 天；過期的掃描任務沒有意義
-  receive_wait_time_seconds  = 20    # long polling
+  message_retention_seconds  = 3600 # 契約 §4：1 小時；Learner Lab 停機期間的積壓不會在恢復後湧向官網
+  receive_wait_time_seconds  = 20   # long polling
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.scan_dlq.arn

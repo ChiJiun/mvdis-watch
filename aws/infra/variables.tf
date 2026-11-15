@@ -91,27 +91,32 @@ variable "dispatcher_schedule_enabled" {
   default     = true
 }
 
-variable "scan_target" {
-  description = "dispatcher 的 SCAN_TARGET：live 或 replay。"
-  type        = string
-  default     = "live"
+variable "hot_per_tick" {
+  description = "dispatcher 每分鐘送出的熱門組合數（HOT_PER_TICK）。dispatcher 只送 live 任務，hot + cold 不得超過 14。"
+  type        = number
+  default     = 11
 
   validation {
-    condition     = contains(["live", "replay"], var.scan_target)
-    error_message = "scan_target 只能是 live 或 replay。"
+    condition     = var.hot_per_tick >= 0 && floor(var.hot_per_tick) == var.hot_per_tick
+    error_message = "hot_per_tick 必須是非負整數。"
   }
 }
 
-variable "hot_per_tick" {
-  description = "dispatcher 每分鐘送出的熱門組合數（HOT_PER_TICK）。"
-  type        = number
-  default     = 11
-}
-
 variable "cold_per_tick" {
-  description = "dispatcher 每分鐘送出的冷門組合數（COLD_PER_TICK）。live 模式下 hot + cold 不得超過 14。"
+  description = "dispatcher 每分鐘送出的冷門組合數（COLD_PER_TICK）。hot + cold 不得超過 14。"
   type        = number
   default     = 3
+
+  validation {
+    condition     = var.cold_per_tick >= 0 && floor(var.cold_per_tick) == var.cold_per_tick
+    error_message = "cold_per_tick 必須是非負整數。"
+  }
+}
+
+variable "janitor_schedule_enabled" {
+  description = "janitor 每日清理排程（台灣時間 04:00）是否啟用。janitor.zip 還沒打包時一律停用。"
+  type        = bool
+  default     = true
 }
 
 # ---------------------------------------------------------------------------
@@ -144,12 +149,6 @@ variable "worker_backlog_per_instance_target" {
   description = "target tracking 目標值：每台 InService worker 平均分到的可見訊息數。"
   type        = number
   default     = 50
-}
-
-variable "worker_mvdis_base_url" {
-  description = "worker 的 MVDIS_BASE_URL。實驗時改成 output replay_base_url（例如 http://10.0.10.200:8080）。"
-  type        = string
-  default     = "https://www.mvdis.gov.tw"
 }
 
 # ---------------------------------------------------------------------------
@@ -188,7 +187,7 @@ variable "bastion_instance_type" {
 }
 
 variable "replay_enabled" {
-  description = "是否建立 Replay 模擬站（E3 用）。"
+  description = "是否建立 Replay 模擬站（E3 用）。開啟時 worker 會多一個 REPLAY_BASE_URL；關閉時不設，worker 拒絕所有 replay 任務。"
   type        = bool
   default     = false
 }

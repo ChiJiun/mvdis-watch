@@ -68,7 +68,7 @@ resource "aws_s3_object" "release" {
 }
 
 # ---------------------------------------------------------------------------
-# Glue Data Catalog + Athena：查 s3://<datalake>/events/dt=YYYY-MM-DD/*.jsonl
+# Glue Data Catalog + Athena：查 s3://<datalake>/events/dt=YYYY-MM-DD/*.jsonl（dt 為台灣時間的日期，契約 §5）
 # 用 partition projection，不必跑 crawler 或 MSCK REPAIR 就能依 dt 分區查詢。
 # ---------------------------------------------------------------------------
 
@@ -82,12 +82,13 @@ resource "aws_glue_catalog_table" "events" {
   table_type    = "EXTERNAL_TABLE"
 
   parameters = {
-    EXTERNAL                      = "TRUE"
-    classification                = "json"
-    "projection.enabled"          = "true"
-    "projection.dt.type"          = "date"
-    "projection.dt.format"        = "yyyy-MM-dd"
-    "projection.dt.range"         = "2026-01-01,NOW"
+    EXTERNAL               = "TRUE"
+    classification         = "json"
+    "projection.enabled"   = "true"
+    "projection.dt.type"   = "date"
+    "projection.dt.format" = "yyyy-MM-dd"
+    # dt 是台灣時間（UTC+8）的日期，而 NOW 以 UTC 計算：台灣 00:00–08:00 時當天分區會比 NOW 多一天，所以上限放寬到 NOW+1DAYS
+    "projection.dt.range"         = "2026-01-01,NOW+1DAYS"
     "projection.dt.interval"      = "1"
     "projection.dt.interval.unit" = "DAYS"
     "storage.location.template"   = "s3://${aws_s3_bucket.datalake.id}/events/dt=$${dt}/"

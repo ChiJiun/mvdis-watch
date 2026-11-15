@@ -10,14 +10,21 @@ locals {
     DB_SECRET_ARN = aws_secretsmanager_secret.db.arn
   }
 
+  # 契約 §3：REPLAY_BASE_URL 只在開了 Replay 站時設定
+  replay_base_url = var.replay_enabled ? "http://${var.replay_private_ip}:8080" : null
+
   service_env = {
-    worker = merge(local.db_env, {
-      SCAN_QUEUE_URL     = aws_sqs_queue.scan.url
-      EVENT_TOPIC_ARN    = aws_sns_topic.events.arn
-      RAW_BUCKET         = aws_s3_bucket.datalake.id
-      MVDIS_BASE_URL     = var.worker_mvdis_base_url
-      WORKER_CONCURRENCY = tostring(var.worker_concurrency)
-    })
+    worker = merge(
+      local.db_env,
+      {
+        SCAN_QUEUE_URL     = aws_sqs_queue.scan.url
+        EVENT_TOPIC_ARN    = aws_sns_topic.events.arn
+        RAW_BUCKET         = aws_s3_bucket.datalake.id
+        MVDIS_LIVE_URL     = local.mvdis_live_url
+        WORKER_CONCURRENCY = tostring(var.worker_concurrency)
+      },
+      local.replay_base_url == null ? {} : { REPLAY_BASE_URL = local.replay_base_url },
+    )
     api = merge(local.db_env, {
       PORT = "8080"
     })
@@ -27,15 +34,17 @@ locals {
     }
   }
 
+  # Windows 上 git 的 autocrlf 可能把範本轉成 CRLF，bash 會因 "\r" 失敗，所以一律轉回 LF
+  #（.gitattributes 也強制 LF，這裡是第二道保險）
   user_data = {
-    for name, env in local.service_env : name => templatefile("${path.module}/templates/user_data.sh.tftpl", {
+    for name, env in local.service_env : name => replace(templatefile("${path.module}/templates/user_data.sh.tftpl", {
       name            = name
       region          = var.region
       artifact_bucket = aws_s3_bucket.artifacts.id
       env             = env
       release_hash    = local.release_hash[name]
       log_group       = aws_cloudwatch_log_group.ec2[name].name
-    })
+    }), "\r\n", "\n")
   }
 }
 

@@ -1,0 +1,2 @@
+# user data 範本會在 Linux 上以 bash 執行，CRLF 會讓 shebang 與每一行指令失敗；其他檔案也統一 LF。
+* text=auto eol=lf

@@ -12,8 +12,8 @@
 | `compute.tf` | worker ASG（SQS 積壓 target tracking）、API ASG（CPU target tracking）、Bastion、Replay（可選） |
 | `templates/user_data.sh.tftpl` | 裝 nodejs22、從 S3 抓 `releases/<name>.mjs`、systemd 執行、CloudWatch agent 收 log |
 | `edge.tf` | ALB（只放行帶 `X-Origin-Verify` 的請求）＋ CloudFront（遵守 origin 的 Cache-Control） |
-| `messaging.tf` | SQS `mvdis-scan`＋`mvdis-scan-dlq`、SNS `mvdis-events`、alarm topic |
-| `lambda.tf` | `mvdis-dispatcher`（EventBridge 每分鐘）、`mvdis-notifier`（SNS filter `target=live`） |
+| `messaging.tf` | SQS `mvdis-scan`（保留 1 小時）＋`mvdis-scan-dlq`、SNS `mvdis-events`、alarm topic |
+| `lambda.tf` | `mvdis-dispatcher`（EventBridge 每分鐘）、`mvdis-notifier`（SNS filter `target=live`）、`mvdis-janitor`（每日台灣 04:00，VPC 內、Worker-SG） |
 | `database.tf` | RDS PostgreSQL 16 Multi-AZ、Secrets Manager（DB 帳密、Discord webhook 空殼） |
 | `storage.tf` | artifact bucket、資料湖 bucket、Glue `events` 表（dt partition projection）、Athena workgroup |
 | `monitoring.tf` | alarm：DLQ 有訊息、RDS CPU、worker ScanErrors |
@@ -52,6 +52,7 @@ Terraform 會自動找下列檔案（契約第 2 節），**有就部署、沒�
 |---|---|
 | `aws/app/dist/dispatcher.zip` | Lambda 用佔位程式，EventBridge 排程自動停用 |
 | `aws/app/dist/notifier.zip` | Lambda 用佔位程式（收到事件會報錯） |
+| `aws/app/dist/janitor.zip` | Lambda 用佔位程式，每日排程自動停用 |
 | `aws/app/dist/worker.mjs`、`aws/api/dist/api.mjs`、`aws/replay/dist/replay.mjs` | 不上傳；instance 上的 systemd 每 10 秒重試下載，直到檔案出現在 `s3://<artifact_bucket>/releases/` |
 
 打包完再跑一次 `terraform apply`：Lambda 會換成新程式碼；EC2 產物內容改變時 launch template 出新版本，ASG 依 `instance_refresh` 滾動替換 instance。
@@ -94,17 +95,18 @@ Athena：workgroup 選 `mvdis`，例如
 ```sql
 SELECT kind, count(*) FROM mvdis_datalake.events WHERE dt >= '2026-11-01' GROUP BY kind;
 ```
+`dt` 是**台灣時間**的日期（契約 §5）。
 
 ## 3. 實驗相關
 
 - **E2 高可用**：`terraform output private_subnet_ids` 找出 AZ-a，停掉該 AZ 的 instance；RDS 用 `aws rds reboot-db-instance --db-instance-identifier "$(terraform output -raw rds_identifier)" --force-failover`。
-- **E3 speedup**：`terraform.tfvars` 設 `replay_enabled = true`、`worker_mvdis_base_url = "http://10.0.10.200:8080"` 後 apply（launch template 變更會滾動替換 worker）。固定台數時先暫停擴縮，避免 target tracking 干擾：
+- **E3 speedup**：`terraform.tfvars` 設 `replay_enabled = true` 後 apply：建立 Replay 站，worker 的環境變數多一個 `REPLAY_BASE_URL=http://10.0.10.200:8080`（launch template 變更會滾動替換 worker）。`MVDIS_LIVE_URL` 固定是官網，不能改；replay 任務只會打 `REPLAY_BASE_URL`（契約 §4.2）。固定台數時先暫停擴縮，避免 target tracking 干擾：
   ```bash
   aws autoscaling suspend-processes --auto-scaling-group-name mvdis-worker-asg --scaling-processes AlarmNotification
   aws autoscaling set-desired-capacity --auto-scaling-group-name mvdis-worker-asg --desired-capacity 4
   ```
   `desired_capacity` 在 Terraform 裡設為 `ignore_changes`，之後 apply 不會蓋回去。
-- 實驗期間若要讓 dispatcher 也送 replay 任務：`scan_target = "replay"`；或 `dispatcher_schedule_enabled = false` 只靠實驗腳本灌佇列。
+- dispatcher 一律只送 live 任務（每分鐘 ≤ 14 則），replay 任務由實驗腳本直接灌佇列。實驗期間不想混入 live 任務時設 `dispatcher_schedule_enabled = false`。
 
 > ⚠️ Learner Lab 對同時執行的 instance 數量與 instance 類型有限制（請以 Lab 的 Readme 為準）。全開時是 Bastion 1 + API 2 + worker 最多 8 + Replay 1 = 12 台；若超過上限，E3 跑 8 台 worker 時可暫時把 `api_min_size` 降為 1。
 
@@ -113,6 +115,8 @@ SELECT kind, count(*) FROM mvdis_datalake.events WHERE dt >= '2026-11-01' GROUP 
 ```bash
 terraform destroy
 ```
+
+`mvdis-janitor` 在 VPC 內，AWS 釋放 Lambda 的網路介面（ENI）要一段時間，destroy 時 Worker-SG 與 app subnet 可能卡 10–20 分鐘才刪掉，屬正常現象。
 
 S3 bucket 設了 `force_destroy`、Secrets Manager 的 `recovery_window_in_days = 0`、RDS `skip_final_snapshot`，所以 destroy 後可以立刻用同樣名稱重建。**RDS 的資料會一起消失**（契約第 10 節：DB 不是唯一來源，原始資料在 S3 也會被刪，需要的話先 `aws s3 sync` 下來）。
 
@@ -125,10 +129,10 @@ S3 bucket 設了 `force_destroy`、Secrets Manager 的 `recovery_window_in_days 
 | `db_multi_az` | `true` | RDS Multi-AZ |
 | `worker_min_size`／`worker_max_size` | 1／8 | worker ASG |
 | `worker_backlog_per_instance_target` | 50 | 每台 worker 的目標積壓訊息數 |
-| `worker_mvdis_base_url` | `https://www.mvdis.gov.tw` | 實驗改成 Replay |
 | `api_min_size`／`api_max_size` | 2／6 | API ASG |
-| `replay_enabled` | `false` | 是否建 Replay 站 |
-| `scan_target`、`hot_per_tick`、`cold_per_tick` | `live`、11、3 | dispatcher；live 時 hot+cold ≤ 14（plan 時檢查） |
-| `dispatcher_schedule_enabled` | `true` | EventBridge 排程開關 |
+| `replay_enabled` | `false` | 是否建 Replay 站；開啟時 worker 才有 `REPLAY_BASE_URL` |
+| `hot_per_tick`、`cold_per_tick` | 11、3 | dispatcher；hot+cold ≤ 14（plan 時檢查） |
+| `dispatcher_schedule_enabled` | `true` | dispatcher 每分鐘排程開關 |
+| `janitor_schedule_enabled` | `true` | janitor 每日排程開關 |
 
 完整清單見 `variables.tf`。
