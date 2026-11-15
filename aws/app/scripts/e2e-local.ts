@@ -2,13 +2,14 @@
  * 本機端到端驗證：docker compose（Postgres + LocalStack）上跑一次完整鏈路，
  * 而且跑的是 `npm run build` 打包出來的產物，不是原始碼：
  *
- *   dist/dispatcher.zip → SQS → dist/worker.mjs（子行程）→ Postgres
+ *   dist/dispatcher.zip → SQS → dist/worker.mjs（子行程）→ Postgres → dist/janitor.zip
  *                                         ├→ S3 raw/、events/
  *                                         └→ SNS → （filter policy target=live）→ 觀察用 SQS
  *                                                                             → dist/notifier.zip → 假 Discord
  *
  * 監理站與 Discord 都是這支腳本自己起的本機 HTTP server，**完全不會打官網**：
- * MVDIS_BASE_URL 指向 127.0.0.1，腳本開頭也會再檢查一次。
+ * MVDIS_LIVE_URL 與 REPLAY_BASE_URL 都指向 127.0.0.1，腳本開頭也會再檢查一次。
+ * 另外確認 aws/localstack/init/ready.d 的腳本有建出契約規定名稱的資源。
  *
  * 用法（在 aws/app）：
  *   docker compose -p mvdis-worker -f ../docker-compose.yml up -d
@@ -24,11 +25,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { inflateRawSync } from 'node:zlib';
 import pg from 'pg';
-import { CreateBucketCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
-import { CreateSecretCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { CreateTopicCommand, SNSClient, SubscribeCommand } from '@aws-sdk/client-sns';
+import { CreateBucketCommand, HeadBucketCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
+import { CreateSecretCommand, DescribeSecretCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { CreateTopicCommand, ListTopicsCommand, SNSClient, SubscribeCommand } from '@aws-sdk/client-sns';
 import {
   CreateQueueCommand,
+  GetQueueUrlCommand,
   DeleteMessageCommand,
   GetQueueAttributesCommand,
   ReceiveMessageCommand,
@@ -37,7 +39,7 @@ import {
   type Message,
 } from '@aws-sdk/client-sqs';
 import { locationsHtml, daysFromNow } from '../test/helpers/fixture.ts';
-import type { ScanTask } from '../../shared/contracts.ts';
+import { NOTIFIER_FILTER_POLICY, type ScanTask } from '../../shared/contracts.ts';
 import { migrate } from './migrate.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -123,7 +125,7 @@ async function main() {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
   const fakeBase = `http://127.0.0.1:${port}`;
-  assertLocal(fakeBase, 'MVDIS_BASE_URL');
+  assertLocal(fakeBase, 'MVDIS_LIVE_URL／REPLAY_BASE_URL');
 
   // === 資料庫 ===
   await migrate({ DATABASE_URL });
@@ -138,6 +140,30 @@ async function main() {
   const sns = new SNSClient({ region: REGION, endpoint: ENDPOINT });
   const s3 = new S3Client({ region: REGION, endpoint: ENDPOINT, forcePathStyle: true });
   const sm = new SecretsManagerClient({ region: REGION, endpoint: ENDPOINT });
+
+  // aws/localstack/init/ready.d 建的標準資源
+  try {
+    const q = await sqs.send(new GetQueueUrlCommand({ QueueName: 'mvdis-scan' }));
+    const dq = await sqs.send(new GetQueueUrlCommand({ QueueName: 'mvdis-scan-dlq' }));
+    const qa = (
+      await sqs.send(new GetQueueAttributesCommand({ QueueUrl: q.QueueUrl, AttributeNames: ['All'] }))
+    ).Attributes!;
+    const topics = ((await sns.send(new ListTopicsCommand({}))).Topics ?? []).map((t) => t.TopicArn ?? '');
+    await s3.send(new HeadBucketCommand({ Bucket: 'mvdis-raw-local' }));
+    await sm.send(new DescribeSecretCommand({ SecretId: 'mvdis/discord' }));
+    await sm.send(new DescribeSecretCommand({ SecretId: 'mvdis/db' }));
+    check(
+      'LocalStack init 腳本建好 mvdis-scan(+dlq)、mvdis-events、mvdis-raw-local、mvdis/discord、mvdis/db',
+      !!dq.QueueUrl &&
+        qa.VisibilityTimeout === '60' &&
+        qa.MessageRetentionPeriod === '3600' &&
+        JSON.parse(qa.RedrivePolicy!).maxReceiveCount == 3 &&
+        topics.some((t) => t.endsWith(':mvdis-events')),
+      { visibility: qa.VisibilityTimeout, retention: qa.MessageRetentionPeriod, redrive: qa.RedrivePolicy },
+    );
+  } catch (e) {
+    check('LocalStack init 腳本建好標準資源', false, e instanceof Error ? e.message : String(e));
+  }
 
   const dlq = await sqs.send(new CreateQueueCommand({ QueueName: `mvdis-scan-dlq-${suffix}` }));
   const dlqArn = (
@@ -167,7 +193,7 @@ async function main() {
       TopicArn: topicArn,
       Protocol: 'sqs',
       Endpoint: sinkArn,
-      Attributes: { FilterPolicy: JSON.stringify({ target: ['live'] }) },
+      Attributes: { FilterPolicy: JSON.stringify(NOTIFIER_FILTER_POLICY) },
     }),
   );
   const secretArn = (
@@ -183,6 +209,7 @@ async function main() {
   const tmp = await mkdtemp(join(tmpdir(), 'mvdis-e2e-'));
   const dispatcher = await loadLambda('dispatcher', tmp);
   const notifier = await loadLambda('notifier', tmp);
+  const janitor = await loadLambda('janitor', tmp);
 
   // === worker 子行程（dist/worker.mjs）===
   const workerLines: string[] = [];
@@ -194,7 +221,8 @@ async function main() {
       SCAN_QUEUE_URL: scanQueueUrl,
       EVENT_TOPIC_ARN: topicArn,
       RAW_BUCKET: bucket,
-      MVDIS_BASE_URL: fakeBase,
+      MVDIS_LIVE_URL: fakeBase,
+      REPLAY_BASE_URL: fakeBase,
       WORKER_CONCURRENCY: '5',
       WORKER_ID: 'e2e-worker',
       WORKER_AZ: 'local-1a',
@@ -237,7 +265,6 @@ async function main() {
   try {
     // --- 第 1 輪：dispatcher（live，打假站）＋模擬 EventBridge 重複觸發 ---
     process.env.SCAN_QUEUE_URL = scanQueueUrl;
-    process.env.SCAN_TARGET = 'live';
     const r1 = (await dispatcher.handler()) as { sent: number };
     const r1b = (await dispatcher.handler()) as { sent: number };
     check('dispatcher（dist/dispatcher.zip）live 模式每次送 14 則', r1.sent === 14 && r1b.sent === 14, [r1, r1b]);
@@ -258,7 +285,12 @@ async function main() {
     // --- 第 2 輪：同一批組合再掃一次（像 experiments 直接灌佇列），上午場由額滿變有位 → released ---
     const combos = round1.rows.map((r) => ({ licenseType: r.license_type, dmvNo: r.dmv_no }));
     const { STATION_BY_NO } = await import('../../../src/catalogue.ts');
-    const mk = (c: { licenseType: string; dmvNo: string }, target: 'live' | 'replay', runId: string | null): ScanTask => ({
+    const mk = (
+      c: { licenseType: string; dmvNo: string },
+      target: 'live' | 'replay',
+      runId: string | null,
+      enqueuedAt = Date.now(),
+    ): ScanTask => ({
       v: 1,
       taskId: randomUUID(),
       licenseType: c.licenseType,
@@ -267,7 +299,7 @@ async function main() {
       tier: 'hot',
       target,
       runId,
-      enqueuedAt: Date.now(),
+      enqueuedAt,
     });
     async function enqueue(tasks: ScanTask[]) {
       for (let i = 0; i < tasks.length; i += 10) {
@@ -364,6 +396,31 @@ async function main() {
       ).Attributes!.ApproximateNumberOfMessages,
     );
     check('DLQ 是空的', dlqCount === 0, { dlq: dlqCount });
+
+    // --- §4.2：live 帶 runId → rejected；live 排隊超過 120 秒 → stale；都不發請求 ---
+    const hitsBefore = [...hits.values()].reduce((a, b) => a + b, 0);
+    const rej = mk(combos[0], 'live', 'exp-should-be-rejected');
+    const stale = mk(combos[1], 'live', null, Date.now() - 200_000);
+    await enqueue([rej, stale]);
+    total += 2;
+    await waitDrained(total, '§4.2');
+    const guard = await db.query<{ task_id: string; outcome: string }>(
+      'SELECT task_id, outcome FROM scan_task_log WHERE task_id = ANY($1::uuid[])',
+      [[rej.taskId, stale.taskId]],
+    );
+    const byId = new Map(guard.rows.map((r) => [r.task_id, r.outcome]));
+    check(
+      '§4.2：live 帶 runId 記 rejected、排隊超過 120 秒記 stale，假監理站沒有多被打',
+      byId.get(rej.taskId) === 'rejected' &&
+        byId.get(stale.taskId) === 'stale' &&
+        [...hits.values()].reduce((a, b) => a + b, 0) === hitsBefore,
+      Object.fromEntries(byId),
+    );
+
+    // --- janitor（dist/janitor.zip）：所有測試場次都在未來、事件都是剛產生的，應該什麼都不刪 ---
+    process.env.DATABASE_URL = DATABASE_URL;
+    const jr = (await janitor.handler()) as { slotEvents: number; slots: number; taskLogs: number };
+    check('janitor（dist/janitor.zip）連得上 DB 並執行，未過期資料不刪', jr.slotEvents === 0 && jr.slots === 0 && jr.taskLogs === 0, jr);
   } finally {
     worker.kill();
     server.close();

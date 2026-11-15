@@ -69,7 +69,7 @@ export async function main(env: Env = process.env as Env) {
     metrics: stdoutSink,
     log,
     identity,
-    baseUrl: env.MVDIS_BASE_URL || undefined,
+    urls: { liveUrl: env.MVDIS_LIVE_URL || undefined, replayUrl: env.REPLAY_BASE_URL || undefined },
     fetchTimeoutMs: intOr(env.FETCH_TIMEOUT_MS, 20_000),
     now: Date.now,
   };
@@ -82,7 +82,7 @@ export async function main(env: Env = process.env as Env) {
     });
   }
 
-  log({ level: 'info', msg: 'worker started', ...identity, concurrency, baseUrl: deps.baseUrl ?? null });
+  log({ level: 'info', msg: 'worker started', ...identity, concurrency, ...deps.urls });
   await runConsumer({ sqs, queueUrl, concurrency, deps, signal: ac.signal });
   await pool.end();
   log({ level: 'info', msg: 'worker stopped' });

@@ -3,8 +3,17 @@
  * 帳密從 Secrets Manager 的 DB_SECRET_ARN 取（JSON `{"username","password"}`）。
  */
 import pg from 'pg';
+import { PG_TYPE_RULES } from '../../shared/contracts.ts';
 import { intOr, required, type Env } from './config.ts';
 import { getSecretJson } from './secrets.ts';
+
+/**
+ * 套用契約 §7.1 的型別轉換：date → 'yyyy-mm-dd'、bigint/numeric → Number、bool → 0/1。
+ * node-postgres 的 type parser 是全域設定，建立任何連線前呼叫一次即可（重複呼叫無妨）。
+ */
+export function applyPgTypeRules(): void {
+  for (const [oid, parse] of Object.entries(PG_TYPE_RULES)) pg.types.setTypeParser(Number(oid), parse);
+}
 
 export type Pool = pg.Pool;
 export type PoolClient = pg.PoolClient;
@@ -35,6 +44,7 @@ export async function poolConfig(env: Env, max: number): Promise<pg.PoolConfig> 
 }
 
 export async function createPool(env: Env, max: number): Promise<Pool> {
+  applyPgTypeRules();
   const pool = new pg.Pool(await poolConfig(env, max));
   pool.on('error', (e) => console.error(JSON.stringify({ level: 'error', msg: 'pg pool error', error: e.message })));
   return pool;

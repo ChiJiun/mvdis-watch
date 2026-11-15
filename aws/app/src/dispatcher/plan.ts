@@ -1,24 +1,17 @@
 /**
- * dispatcher 的分段排程，純函式、不碰 IO。
+ * dispatcher 的分段排程（契約 §4.1），純函式、不碰 IO。
  *
- * dispatcher 是無狀態的（契約第 4 節）：不連資料庫、不記游標，
- * 改用「從 epoch 起算的分鐘數」決定這一輪輪到哪一段。
+ * dispatcher 是無狀態的：不連資料庫、不記游標，用 m = floor(Date.now() / 60000) 決定這一輪輪到哪一段：
  *
- *   熱門 108 組，每分鐘 11 組 → 第 m 分鐘取 [(m*11) % 108, +11)，約 9.8 分鐘輪完
- *   冷門 252 組，每分鐘 3 組  → 第 m 分鐘取 [(m*3) % 252, +3)，84 分鐘輪完
+ *   hotStart  = (m * HOT_PER_TICK)  mod 108 → 取 HOT[hotStart …] 共 HOT_PER_TICK 組（超過尾端繞回）
+ *   coldStart = (m * COLD_PER_TICK) mod 252 → 取 COLD[coldStart …] 共 COLD_PER_TICK 組
  *
- * 長期沒場次的組合照樣派出，由 worker 查 scan_log 決定要不要跳過（降頻），
- * 被跳過的任務不會對官網發請求。
+ * 預設 11 + 3：熱門約 9.8 分鐘輪完，冷門 84 分鐘輪完。送出的任務一律 target=live、runId=null。
+ * 長期沒場次的組合照樣派出，由 worker 查 scan_log 決定要不要跳過（降頻），被跳過的不會對官網發請求。
  */
 import { createHash } from 'node:crypto';
 import { hotCombos, coldCombos, type Combo } from '../../../../src/catalogue.ts';
-import {
-  CONTRACT_VERSION,
-  LIVE_MAX_TASKS_PER_MINUTE,
-  type ScanTask,
-  type ScanTarget,
-  type ScanTier,
-} from '../../../shared/contracts.ts';
+import { CONTRACT_VERSION, LIVE_MAX_TASKS_PER_MINUTE, type ScanTask, type ScanTier } from '../../../shared/contracts.ts';
 import { intOr, type Env } from '../config.ts';
 
 export const HOT = hotCombos();
@@ -27,40 +20,23 @@ export const COLD = coldCombos();
 export const DEFAULT_HOT_PER_TICK = 11;
 export const DEFAULT_COLD_PER_TICK = 3;
 
-export type DispatchConfig = { target: ScanTarget; hotPerTick: number; coldPerTick: number };
+export type DispatchConfig = { hotPerTick: number; coldPerTick: number };
+
+export class DispatchConfigError extends Error {}
 
 /**
- * 讀環境變數並套上禮貌上限。
- * live 模式下兩者合計超過 14 時先砍冷門、再砍熱門，並回傳警告讓 handler 記 log，
- * 而不是直接丟例外 —— 設定打錯時寧可少掃，也不要整個停擺或多打官網。
+ * 讀 HOT_PER_TICK／COLD_PER_TICK。空值、非數字、負數退回預設值；
+ * 兩者合計超過 14 時丟 DispatchConfigError —— 契約規定 dispatcher 要拒絕執行、不送任何任務。
  */
-export function dispatchConfig(env: Env): { config: DispatchConfig; warnings: string[] } {
-  const warnings: string[] = [];
-  const rawTarget = (env.SCAN_TARGET ?? 'live').trim() || 'live';
-  let target: ScanTarget;
-  if (rawTarget === 'live' || rawTarget === 'replay') {
-    target = rawTarget;
-  } else {
-    // 不認得的值一律當 live 處理，才會套上 14 的上限
-    warnings.push(`SCAN_TARGET=${rawTarget} 不是 live/replay，當作 live`);
-    target = 'live';
-  }
-
-  let hot = intOr(env.HOT_PER_TICK, DEFAULT_HOT_PER_TICK);
-  let cold = intOr(env.COLD_PER_TICK, DEFAULT_COLD_PER_TICK);
-  hot = Math.min(hot, HOT.length);
-  cold = Math.min(cold, COLD.length);
-
-  if (target === 'live' && hot + cold > LIVE_MAX_TASKS_PER_MINUTE) {
-    const origHot = hot;
-    const origCold = cold;
-    hot = Math.min(hot, LIVE_MAX_TASKS_PER_MINUTE);
-    cold = Math.min(cold, LIVE_MAX_TASKS_PER_MINUTE - hot);
-    warnings.push(
-      `live 模式每分鐘最多 ${LIVE_MAX_TASKS_PER_MINUTE} 則，HOT_PER_TICK=${origHot}、COLD_PER_TICK=${origCold} 已調整為 ${hot}、${cold}`,
+export function dispatchConfig(env: Env): DispatchConfig {
+  const hot = intOr(env.HOT_PER_TICK, DEFAULT_HOT_PER_TICK);
+  const cold = intOr(env.COLD_PER_TICK, DEFAULT_COLD_PER_TICK);
+  if (hot + cold > LIVE_MAX_TASKS_PER_MINUTE) {
+    throw new DispatchConfigError(
+      `HOT_PER_TICK(${hot}) + COLD_PER_TICK(${cold}) = ${hot + cold} 超過每分鐘上限 ${LIVE_MAX_TASKS_PER_MINUTE}，拒絕執行`,
     );
   }
-  return { config: { target, hotPerTick: hot, coldPerTick: cold }, warnings };
+  return { hotPerTick: hot, coldPerTick: cold };
 }
 
 export function epochMinute(nowMs: number): number {
@@ -78,14 +54,13 @@ export function segment<T>(list: readonly T[], minute: number, perTick: number):
 }
 
 /**
- * 由（分鐘, 層, 目標, 組合）決定的 UUID（RFC 4122 v5 格式，SHA-1）。
+ * 由（分鐘, 層, 組合）決定的 UUID（RFC 4122 v5 格式，SHA-1）。
  *
  * EventBridge 是 at-least-once，同一分鐘可能觸發兩次。taskId 固定之後，
- * 重複送出的任務在 worker 端會被 scan_task_log 的冪等檢查擋掉，
- * 不會因為重複觸發而多打官網。
+ * 重複送出的任務在 worker 端會被 scan_task_log 的冪等檢查擋掉。
  */
-export function deterministicTaskId(minute: number, tier: ScanTier, target: ScanTarget, c: Combo): string {
-  const h = createHash('sha1').update(`mvdis-scan|${minute}|${tier}|${target}|${c.licenseType}|${c.dmvNo}`).digest();
+export function deterministicTaskId(minute: number, tier: ScanTier, c: Combo): string {
+  const h = createHash('sha1').update(`mvdis-scan|${minute}|${tier}|live|${c.licenseType}|${c.dmvNo}`).digest();
   const b = Buffer.from(h.subarray(0, 16));
   b[6] = (b[6] & 0x0f) | 0x50; // version 5
   b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
@@ -97,12 +72,12 @@ export function planTick(nowMs: number, config: DispatchConfig): ScanTask[] {
   const minute = epochMinute(nowMs);
   const make = (tier: ScanTier) => (c: Combo): ScanTask => ({
     v: CONTRACT_VERSION,
-    taskId: deterministicTaskId(minute, tier, config.target, c),
+    taskId: deterministicTaskId(minute, tier, c),
     licenseType: c.licenseType,
     lv1: c.lv1,
     dmvNo: c.dmvNo,
     tier,
-    target: config.target,
+    target: 'live',
     runId: null,
     enqueuedAt: nowMs,
   });
@@ -110,9 +85,9 @@ export function planTick(nowMs: number, config: DispatchConfig): ScanTask[] {
     ...segment(HOT, minute, config.hotPerTick).map(make('hot')),
     ...segment(COLD, minute, config.coldPerTick).map(make('cold')),
   ];
-  // 最後一道防線：就算上面哪裡算錯，live 也絕不超過上限
-  if (config.target === 'live' && tasks.length > LIVE_MAX_TASKS_PER_MINUTE) {
-    return tasks.slice(0, LIVE_MAX_TASKS_PER_MINUTE);
+  // 最後一道防線：就算 config 被繞過，也絕不超過上限
+  if (tasks.length > LIVE_MAX_TASKS_PER_MINUTE) {
+    throw new DispatchConfigError(`本輪 ${tasks.length} 則超過上限 ${LIVE_MAX_TASKS_PER_MINUTE}，拒絕執行`);
   }
   return tasks;
 }

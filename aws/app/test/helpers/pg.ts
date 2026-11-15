@@ -6,11 +6,13 @@
 import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { SCHEMA_PATH } from '../../scripts/migrate.ts';
+import { applyPgTypeRules } from '../../src/db.ts';
 
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 export async function createTestPool(max = 6): Promise<{ pool: pg.Pool; drop: () => Promise<void> }> {
   if (!TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL 未設定');
+  applyPgTypeRules(); // 和正式環境一樣套用契約 §7.1 的型別規則
   const schema = `test_${process.pid}_${Math.random().toString(36).slice(2, 8)}`;
   const admin = new pg.Client({ connectionString: TEST_DATABASE_URL });
   await admin.connect();

@@ -2,6 +2,7 @@
  * 打包出契約第 2 節規定的三個產物：
  *   dist/dispatcher.zip（內含 index.mjs，handler = index.handler）
  *   dist/notifier.zip  （同上）
+ *   dist/janitor.zip   （同上）
  *   dist/worker.mjs    （EC2 上以 systemd 執行）
  *
  * AWS SDK 一律打包進去，不依賴 Lambda runtime 內建的版本。
@@ -37,7 +38,7 @@ const common = {
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 
-for (const name of ['dispatcher', 'notifier']) {
+for (const name of ['dispatcher', 'notifier', 'janitor']) {
   const out = join(dist, name, 'index.mjs');
   await build({ ...common, entryPoints: [join(root, 'src', name, 'index.ts')], outfile: out });
   const code = await readFile(out);

@@ -17,5 +17,10 @@ services:
     environment:
       SERVICES: sqs,sns,s3,secretsmanager
       AWS_DEFAULT_REGION: us-east-1
+      # 想在本機實際推到 Discord 時，啟動前設 DISCORD_WEBHOOK_URL
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
     ports:
       - "4566:4566"
+    volumes:
+      # 啟動完成後建立 queue／topic／bucket／secret（見 aws/localstack/init/ready.d）
+      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro

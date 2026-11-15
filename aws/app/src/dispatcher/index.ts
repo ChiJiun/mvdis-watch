@@ -5,7 +5,7 @@
 import { SQSClient, SendMessageBatchCommand } from '@aws-sdk/client-sqs';
 import type { ScanTask } from '../../../shared/contracts.ts';
 import { awsEndpoint, awsRegion, required, type Env } from '../config.ts';
-import { dispatchConfig, planTick } from './plan.ts';
+import { DispatchConfigError, dispatchConfig, planTick } from './plan.ts';
 
 let sqs: SQSClient | undefined;
 
@@ -28,30 +28,39 @@ export function sqsSendBatch(c: SQSClient): SendBatch {
   };
 }
 
-/** 可注入的核心，測試用 */
+/**
+ * 可注入的核心，測試用。
+ * 設定超過禮貌上限時記錯誤並丟例外（不送任何任務）：Lambda 的 Errors 指標會反映出來，方便設警報。
+ */
 export async function dispatch(env: Env, nowMs: number, send: SendBatch) {
   const queueUrl = required(env, 'SCAN_QUEUE_URL');
-  const { config, warnings } = dispatchConfig(env);
-  for (const w of warnings) console.warn(JSON.stringify({ level: 'warn', msg: w }));
+  let tasks: ScanTask[];
+  try {
+    tasks = planTick(nowMs, dispatchConfig(env));
+  } catch (e) {
+    if (e instanceof DispatchConfigError) {
+      console.error(JSON.stringify({ level: 'error', msg: 'dispatch refused', error: e.message }));
+    }
+    throw e;
+  }
 
-  const tasks = planTick(nowMs, config);
   const failed: string[] = [];
   // SendMessageBatch 一次最多 10 則
   for (let i = 0; i < tasks.length; i += 10) {
     const r = await send(queueUrl, tasks.slice(i, i + 10));
     failed.push(...r.failed);
   }
-  const summary = {
-    level: failed.length ? 'error' : 'info',
-    msg: 'dispatched',
-    target: config.target,
-    hot: tasks.filter((t) => t.tier === 'hot').length,
-    cold: tasks.filter((t) => t.tier === 'cold').length,
-    failed,
-  };
-  console.log(JSON.stringify(summary));
-  // 部分失敗不重丟：重試整輪會把成功的那幾則再送一次（雖然 taskId 固定、worker 會擋掉，
-  // 但沒必要）。漏掉的組合下一圈會再輪到。
+  console.log(
+    JSON.stringify({
+      level: failed.length ? 'error' : 'info',
+      msg: 'dispatched',
+      hot: tasks.filter((t) => t.tier === 'hot').length,
+      cold: tasks.filter((t) => t.tier === 'cold').length,
+      failed,
+    }),
+  );
+  // 部分失敗不重丟：重試整輪會把成功的那幾則再送一次（taskId 固定、worker 會擋掉，但沒必要）。
+  // 漏掉的組合下一圈會再輪到。
   return { sent: tasks.length - failed.length, failed: failed.length, tasks };
 }
 

@@ -1,13 +1,13 @@
 /**
  * worker 處理流程，對真 Postgres 跑（TEST_DATABASE_URL 沒設就整檔跳過）。
- * S3、SNS、HTTP 都換成假的，記錄呼叫內容。
+ * S3、SNS、HTTP 都換成假的，記錄呼叫內容。DB 型別套用契約 §7.1（bool → 0/1、bigint → Number）。
  */
 import { after, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
-import { CLAIM_LEASE_MS, PRUNE_AFTER_EMPTY, processMessage, type Deps } from '../src/worker/process.ts';
-import type { ReleasedEvent, ScanTask } from '../../shared/contracts.ts';
+import { PRUNE_AFTER_EMPTY, processMessage, type Deps } from '../src/worker/process.ts';
+import { LIVE_TASK_MAX_AGE_MS, type ReleasedEvent, type ScanTask } from '../../shared/contracts.ts';
 import { createTestPool, TEST_DATABASE_URL } from './helpers/pg.ts';
 import { daysFromNow, locationsHtml, type FixtureRow } from './helpers/fixture.ts';
 
@@ -60,7 +60,7 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     metrics: (line) => metrics.push(JSON.parse(line)),
     log: () => {},
     identity: { workerId: 'i-test', az: 'us-east-1a' },
-    baseUrl: 'http://replay.test:8080',
+    urls: { liveUrl: 'http://live.test:8080', replayUrl: 'http://replay.test:8080' },
     fetchTimeoutMs: 1000,
     now: () => clock,
     ...over,
@@ -83,38 +83,44 @@ describe('worker processMessage（Postgres）', { skip }, () => {
   const setPage = (rows: FixtureRow[]) => {
     html = locationsHtml(rows);
   };
+  const taskRow = async (taskId: string) =>
+    (await pool.query('SELECT * FROM scan_task_log WHERE task_id = $1', [taskId])).rows[0];
+  const count = async (sql: string, params: unknown[] = []) => (await pool.query(sql, params)).rows[0].n as number;
 
-  test('第一次掃描：寫入 slot、new 事件、scan_log、scan_task_log，原始頁與事件放 S3', async () => {
+  test('第一次掃描：寫入 slot、new 事件、scan_log、scan_task_log（committed_at、finished_at），原始頁與事件放 S3', async () => {
     setPage([
       { date: D1, session: '上午', group: 1, quota: 'full' },
       { date: D1, session: '下午', group: 2, quota: 3 },
     ]);
     const t = task();
-    const r = await run(t);
-    assert.equal(r.outcome, 'ok');
-    assert.equal(r.deleteMessage, true);
-    assert.equal(r.events, 2);
-    assert.equal(fetchCalls.length, 1);
-    assert.equal(fetchCalls[0], 'http://replay.test:8080/m3-emv-trn/exm/locations');
+    const r = await run(t, deps(), 2);
+    assert.deepEqual([r.outcome, r.deleteMessage, r.events], ['ok', true, 2]);
+    assert.deepEqual(fetchCalls, ['http://replay.test:8080/m3-emv-trn/exm/locations']);
 
-    const slots = await pool.query('SELECT sec_key, quota, signup_available FROM slot ORDER BY sec_key');
-    assert.deepEqual(slots.rows, [
-      { sec_key: '1:1', quota: -1, signup_available: false },
-      { sec_key: '2:2', quota: 3, signup_available: true },
-    ]);
+    const slots = await pool.query('SELECT exam_date, sec_key, quota, signup_available, first_seen FROM slot ORDER BY sec_key');
+    assert.deepEqual(
+      slots.rows.map((x) => [x.exam_date, x.sec_key, x.quota, x.signup_available]),
+      [
+        [D1, '1:1', -1, 0],
+        [D1, '2:2', 3, 1],
+      ],
+      '§7.1：date 是字串、bool 是 0/1',
+    );
+    assert.equal(typeof slots.rows[0].first_seen, 'number', '§7.1：bigint 是 Number');
+
     const ev = await pool.query('SELECT kind, task_id, run_id FROM slot_event');
     assert.equal(ev.rowCount, 2);
     assert.ok(ev.rows.every((e) => e.kind === 'new' && e.task_id === t.taskId));
 
-    const log = await pool.query('SELECT rows_seen, empty_streak, last_ok::float8 AS last_ok FROM scan_log');
-    assert.equal(log.rows[0].rows_seen, 2);
-    assert.equal(log.rows[0].empty_streak, 0);
+    const log = (await pool.query('SELECT rows_seen, empty_streak FROM scan_log')).rows[0];
+    assert.deepEqual(log, { rows_seen: 2, empty_streak: 0 });
 
-    const tl = await pool.query('SELECT outcome, worker_id, az, finished_at FROM scan_task_log WHERE task_id = $1', [t.taskId]);
-    assert.equal(tl.rows[0].outcome, 'ok');
-    assert.equal(tl.rows[0].worker_id, 'i-test');
-    assert.equal(tl.rows[0].az, 'us-east-1a');
-    assert.ok(tl.rows[0].finished_at);
+    const tl = await taskRow(t.taskId);
+    assert.equal(tl.outcome, 'ok');
+    assert.equal(tl.worker_id, 'i-test');
+    assert.equal(tl.az, 'us-east-1a');
+    assert.equal(tl.receive_count, 2, 'receive_count 取自 SQS ApproximateReceiveCount');
+    assert.ok(tl.committed_at && tl.finished_at && tl.finished_at >= tl.committed_at);
 
     const raw = puts.find((p) => p.key.startsWith('raw/'));
     assert.match(raw!.key, /^raw\/dt=\d{4}-\d{2}-\d{2}\/license=3\/dmv=63\/\d+\.html\.gz$/);
@@ -123,13 +129,12 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     const lines = String(events!.body).trim().split('\n').map((l) => JSON.parse(l));
     assert.equal(lines.length, 2);
     assert.equal(lines[0].taskId, t.taskId);
+    assert.equal(lines[0].examDate, D1);
+    assert.equal(typeof lines[0].at, 'number');
     assert.equal(published.length, 0, 'new 不推 SNS');
 
     assert.equal(metrics.length, 1);
-    assert.equal(metrics[0].Tier, 'hot');
-    assert.equal(metrics[0].Target, 'replay');
-    assert.equal(metrics[0].ScanErrors, 0);
-    assert.equal(metrics[0].ScanDurationMs, 25);
+    assert.deepEqual([metrics[0].Tier, metrics[0].Target, metrics[0].ScanErrors, metrics[0].ScanDurationMs], ['hot', 'replay', 0, 25]);
   });
 
   test('額滿 → 有位：記 released、只發這一筆到 SNS，沒變的不寫', async () => {
@@ -145,20 +150,15 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     ]);
     const t2 = task({ runId: 'run-42' });
     const r = await run(t2);
-    assert.equal(r.events, 1);
-    assert.equal(r.released, 1);
+    assert.deepEqual([r.events, r.released], [1, 1]);
     assert.equal(published.length, 1);
-    assert.equal(published[0].kind, 'released');
-    assert.equal(published[0].target, 'replay');
-    assert.equal(published[0].oldQuota, -1);
-    assert.equal(published[0].newQuota, 2);
-    assert.equal(published[0].runId, 'run-42');
-    assert.equal(published[0].taskId, t2.taskId);
-
-    const rel = await pool.query("SELECT run_id, task_id FROM slot_event WHERE kind = 'released'");
-    assert.equal(rel.rows[0].run_id, 'run-42');
-    const unchanged = await pool.query("SELECT updated_at::float8 AS u, first_seen::float8 AS f FROM slot WHERE sec_key = '2:2'");
-    assert.ok(unchanged.rows[0].u < clock, '沒變動的列不更新');
+    const p = published[0];
+    assert.deepEqual(
+      [p.kind, p.target, p.oldQuota, p.newQuota, p.runId, p.taskId, p.examDate],
+      ['released', 'replay', -1, 2, 'run-42', t2.taskId, D1],
+    );
+    const unchanged = (await pool.query("SELECT updated_at FROM slot WHERE sec_key = '2:2'")).rows[0];
+    assert.ok(unchanged.updated_at < clock, '沒變動的列不更新');
     assert.equal(metrics.at(-1)!.ReleasedEvents, 1);
   });
 
@@ -175,44 +175,124 @@ describe('worker processMessage（Postgres）', { skip }, () => {
       { date: D1, session: '下午', group: 2, quota: 1 },
     ]);
     await run(task());
-    const kinds = await pool.query("SELECT kind, sec_key, exam_date::text AS d FROM slot_event WHERE kind <> 'new' ORDER BY kind");
-    assert.deepEqual(
-      kinds.rows.map((r) => r.kind),
-      ['decreased', 'filled', 'gone'],
-    );
-    const left = await pool.query('SELECT count(*)::int AS n FROM slot');
-    assert.equal(left.rows[0].n, 2);
+    const kinds = await pool.query("SELECT kind FROM slot_event WHERE kind <> 'new' ORDER BY kind");
+    assert.deepEqual(kinds.rows.map((r) => r.kind), ['decreased', 'filled', 'gone']);
+    assert.equal(await count('SELECT count(*) AS n FROM slot'), 2);
   });
 
-  test('冪等：同一個 taskId 重送，已完成就直接刪訊息、不再抓', async () => {
+  test('冪等：已完成的 taskId 重送，直接刪訊息、不再抓', async () => {
     setPage([{ date: D1, session: '上午', group: 1, quota: 1 }]);
     const t = task();
     await run(t);
-    assert.equal(fetchCalls.length, 1);
     const again = await run(t, deps(), 2);
     assert.deepEqual([again.outcome, again.deleteMessage], ['duplicate', true]);
     assert.equal(fetchCalls.length, 1);
-    const ev = await pool.query('SELECT count(*)::int AS n FROM slot_event');
-    assert.equal(ev.rows[0].n, 1, '事件不會重複寫');
+    assert.equal(await count('SELECT count(*) AS n FROM slot_event'), 1, '事件不會重複寫');
+    assert.equal((await taskRow(t.taskId)).receive_count, 2);
   });
 
-  test('冪等：另一台還在處理（租約未過期）時不重做、也不刪訊息；租約過期後可接手', async () => {
-    const t = task();
-    await pool.query(
-      `INSERT INTO scan_task_log (task_id, license_type, dmv_no, tier, target, enqueued_at, started_at, worker_id)
-       VALUES ($1, '3', '63', 'hot', 'replay', $2, $3, 'i-other')`,
-      [t.taskId, t.enqueuedAt, clock - 5_000],
+  test('冪等：已提交但副作用失敗 → 不刪訊息；重送時不再抓，從 slot_event 重建事件補做 S3／SNS 後才寫 finished_at', async () => {
+    setPage([{ date: D1, session: '上午', group: 1, quota: 'full' }]);
+    await run(task());
+    clock += 60_000;
+    setPage([{ date: D1, session: '上午', group: 1, quota: 4 }]);
+    const t = task({ runId: 'e-resume' });
+    const logs: Array<Record<string, unknown>> = [];
+    const first = await run(
+      t,
+      deps({
+        putObject: async () => {
+          throw new Error('s3 down');
+        },
+        log: (o) => logs.push(o),
+      }),
     );
-    const r = await run(t);
-    assert.deepEqual([r.outcome, r.deleteMessage], ['in_progress', false]);
-    assert.equal(fetchCalls.length, 0);
+    assert.deepEqual([first.outcome, first.deleteMessage], ['retry', false]);
+    assert.ok(logs.some((l) => String(l.msg).startsWith('side effect failed')));
+    let tl = await taskRow(t.taskId);
+    assert.ok(tl.committed_at, 'DB 交易已提交');
+    assert.equal(tl.finished_at, null, '副作用沒做完不能算完成');
+    const fetchesBefore = fetchCalls.length;
+    const publishedBefore = published.length;
+    const putsBefore = puts.length;
 
-    clock += CLAIM_LEASE_MS + 1;
-    const r2 = await run(t, deps(), 2);
-    assert.equal(r2.outcome, 'ok');
-    const tl = await pool.query('SELECT worker_id, receive_count FROM scan_task_log WHERE task_id = $1', [t.taskId]);
-    assert.equal(tl.rows[0].worker_id, 'i-test');
-    assert.equal(tl.rows[0].receive_count, 2);
+    clock += 60_000;
+    const second = await run(t, deps(), 2);
+    assert.deepEqual([second.outcome, second.deleteMessage, second.released], ['resumed', true, 1]);
+    assert.equal(fetchCalls.length, fetchesBefore, '補做副作用不再打 HTTP');
+    assert.equal(published.length, publishedBefore + 1);
+    assert.equal(published.at(-1)!.runId, 'e-resume');
+    const newPuts = puts.slice(putsBefore).map((p) => p.key);
+    assert.deepEqual(newPuts.filter((k) => k.startsWith('events/')).length, 1, '事件檔補寫到 S3');
+    assert.ok(!newPuts.some((k) => k.startsWith('raw/')), '補做時已沒有 HTML，略過 raw');
+    tl = await taskRow(t.taskId);
+    assert.ok(tl.finished_at);
+    assert.equal(await count("SELECT count(*) AS n FROM slot_event WHERE kind = 'released'"), 1, 'DB 事件不重複');
+  });
+
+  test('冪等：同一個 taskId 兩台同時處理，只有一台提交，事件只寫一次', async () => {
+    setPage([
+      { date: D1, session: '上午', group: 1, quota: 1 },
+      { date: D2, session: '上午', group: 1, quota: 2 },
+    ]);
+    const t = task();
+    const results = await Promise.all([run(t), run(t)]);
+    const outcomes = results.map((r) => r.outcome).sort();
+    assert.ok(
+      JSON.stringify(outcomes) === JSON.stringify(['ok', 'resumed']) || JSON.stringify(outcomes) === JSON.stringify(['duplicate', 'ok']),
+      JSON.stringify(outcomes),
+    );
+    assert.ok(results.every((r) => r.deleteMessage));
+    assert.equal(await count('SELECT count(*) AS n FROM slot_event'), 2);
+  });
+
+  test('並發：同一組合不同任務同時處理（advisory lock），只會記一次 new 事件', async () => {
+    setPage([
+      { date: D1, session: '上午', group: 1, quota: 1 },
+      { date: D2, session: '上午', group: 1, quota: 2 },
+    ]);
+    const results = await Promise.all([run(task()), run(task()), run(task())]);
+    assert.ok(results.every((r) => r.outcome === 'ok'));
+    assert.equal(await count("SELECT count(*) AS n FROM slot_event WHERE kind = 'new'"), 2);
+  });
+
+  test('§4.2：live 任務帶 runId → rejected，不發請求，記錄後刪訊息', async () => {
+    const t = task({ target: 'live', runId: 'exp-1' });
+    const r = await run(t);
+    assert.deepEqual([r.outcome, r.deleteMessage], ['rejected', true]);
+    assert.equal(fetchCalls.length, 0);
+    const tl = await taskRow(t.taskId);
+    assert.equal(tl.outcome, 'rejected');
+    assert.ok(tl.finished_at);
+    assert.equal(tl.committed_at, null);
+  });
+
+  test('§4.2：live 任務排隊超過 120 秒 → stale，不發請求；未超過就照常打 MVDIS_LIVE_URL', async () => {
+    const old = task({ target: 'live', enqueuedAt: clock - LIVE_TASK_MAX_AGE_MS - 1 });
+    const r = await run(old);
+    assert.deepEqual([r.outcome, r.deleteMessage], ['stale', true]);
+    assert.equal(fetchCalls.length, 0);
+    assert.equal((await taskRow(old.taskId)).outcome, 'stale');
+
+    const fresh = await run(task({ target: 'live', enqueuedAt: clock - 5_000 }));
+    assert.equal(fresh.outcome, 'ok');
+    assert.deepEqual(fetchCalls, ['http://live.test:8080/m3-emv-trn/exm/locations']);
+  });
+
+  test('§4.2：replay 不打官網 —— REPLAY_BASE_URL 未設定或指向官網時 rejected，一個請求都不發', async () => {
+    for (const replayUrl of ['https://www.mvdis.gov.tw', 'https://WWW.MVDIS.GOV.TW/', undefined]) {
+      const t = task({ target: 'replay', runId: 'e1' });
+      const r = await run(t, deps({ urls: { liveUrl: 'https://www.mvdis.gov.tw', replayUrl } }));
+      assert.deepEqual([r.outcome, r.deleteMessage], ['rejected', true], String(replayUrl));
+      assert.equal((await taskRow(t.taskId)).outcome, 'rejected');
+    }
+    assert.equal(fetchCalls.length, 0);
+    assert.equal(await count('SELECT count(*) AS n FROM scan_log'), 0, '不污染上游健康度');
+  });
+
+  test('§4.2：replay 任務不受 120 秒限制', async () => {
+    const r = await run(task({ target: 'replay', runId: 'e1', enqueuedAt: clock - 3600_000 }));
+    assert.equal(r.outcome, 'ok');
   });
 
   test('降頻：長期沒場次的組合 24 小時內跳過、不發請求；實驗任務（有 runId）不跳過', async () => {
@@ -224,9 +304,9 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     const r = await run(t);
     assert.deepEqual([r.outcome, r.deleteMessage], ['skipped', true]);
     assert.equal(fetchCalls.length, 0);
-    const tl = await pool.query('SELECT outcome, finished_at FROM scan_task_log WHERE task_id = $1', [t.taskId]);
-    assert.equal(tl.rows[0].outcome, 'skipped');
-    assert.ok(tl.rows[0].finished_at);
+    const tl = await taskRow(t.taskId);
+    assert.equal(tl.outcome, 'skipped');
+    assert.ok(tl.finished_at);
 
     const exp = await run(task({ runId: 'e1' }));
     assert.equal(exp.outcome, 'ok');
@@ -240,8 +320,7 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     );
     const r = await run(task());
     assert.equal(r.outcome, 'ok');
-    const log = await pool.query('SELECT empty_streak FROM scan_log');
-    assert.equal(log.rows[0].empty_streak, PRUNE_AFTER_EMPTY + 1);
+    assert.equal((await pool.query('SELECT empty_streak FROM scan_log')).rows[0].empty_streak, PRUNE_AFTER_EMPTY + 1);
   });
 
   test('上游錯誤：記 scan_log 錯誤與 outcome=error，照樣刪訊息（不讓 SQS 立刻重打）', async () => {
@@ -250,12 +329,11 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     const t = task();
     const r = await run(t);
     assert.deepEqual([r.outcome, r.deleteMessage], ['error', true]);
-    const log = await pool.query('SELECT last_error, last_ok, empty_streak FROM scan_log');
-    assert.equal(log.rows[0].last_error, 'HTTP 502');
-    assert.equal(log.rows[0].last_ok, null);
-    assert.equal(log.rows[0].empty_streak, 0, '錯誤不能算成空結果，否則會誤觸降頻');
-    const tl = await pool.query('SELECT outcome, error FROM scan_task_log WHERE task_id = $1', [t.taskId]);
-    assert.deepEqual(tl.rows[0], { outcome: 'error', error: 'HTTP 502' });
+    const log = (await pool.query('SELECT last_error, last_ok, empty_streak FROM scan_log')).rows[0];
+    assert.deepEqual(log, { last_error: 'HTTP 502', last_ok: null, empty_streak: 0 }, '錯誤不能算成空結果，否則會誤觸降頻');
+    const tl = await taskRow(t.taskId);
+    assert.deepEqual([tl.outcome, tl.error], ['error', 'HTTP 502']);
+    assert.ok(tl.committed_at && tl.finished_at);
     assert.equal(metrics.at(-1)!.ScanErrors, 1);
   });
 
@@ -264,67 +342,19 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     const r = await run(task());
     assert.equal(r.outcome, 'error');
     assert.match(r.error!, /trnTable/);
-    assert.equal((await pool.query('SELECT count(*)::int AS n FROM slot')).rows[0].n, 0);
-  });
-
-  test('replay 不打官網：MVDIS_BASE_URL 指向官網時一個請求都不發，任務記成 error', async () => {
-    for (const baseUrl of ['https://www.mvdis.gov.tw', 'https://WWW.MVDIS.GOV.TW/', undefined]) {
-      const t = task({ target: 'replay' });
-      const r = await run(t, deps({ baseUrl }));
-      assert.equal(r.outcome, 'error', String(baseUrl));
-      assert.equal(r.deleteMessage, true);
-    }
-    assert.equal(fetchCalls.length, 0);
-    assert.equal((await pool.query('SELECT count(*)::int AS n FROM scan_log')).rows[0].n, 0, '不污染上游健康度');
-  });
-
-  test('並發：同一組合兩個任務同時處理，只會記一次 new 事件', async () => {
-    setPage([
-      { date: D1, session: '上午', group: 1, quota: 1 },
-      { date: D2, session: '上午', group: 1, quota: 2 },
-    ]);
-    const results = await Promise.all([run(task()), run(task()), run(task())]);
-    assert.ok(results.every((r) => r.outcome === 'ok'));
-    const ev = await pool.query("SELECT count(*)::int AS n FROM slot_event WHERE kind = 'new'");
-    assert.equal(ev.rows[0].n, 2);
+    assert.equal(await count('SELECT count(*) AS n FROM slot'), 0);
   });
 
   test('舊快照不能蓋掉新資料：晚抓的先提交時，早抓的結果不套用', async () => {
     setPage([{ date: D1, session: '上午', group: 1, quota: 9 }]);
     await run(task());
-    // 讓下一次抓取的時間點早於已寫入的 last_ok
-    clock -= 10_000;
+    clock -= 10_000; // 讓下一次抓取的時間點早於已寫入的 last_ok
     setPage([{ date: D1, session: '上午', group: 1, quota: 'full' }]);
     const t = task();
     const r = await run(t);
-    assert.equal(r.outcome, 'ok');
-    assert.equal(r.events, 0);
-    const q = await pool.query('SELECT quota FROM slot');
-    assert.equal(q.rows[0].quota, 9);
-    const tl = await pool.query('SELECT error FROM scan_task_log WHERE task_id = $1', [t.taskId]);
-    assert.match(tl.rows[0].error, /stale/);
-  });
-
-  test('交易提交後 S3／SNS 失敗：資料已寫入、訊息照樣刪，錯誤有記 log', async () => {
-    setPage([{ date: D1, session: '上午', group: 1, quota: 'full' }]);
-    await run(task());
-    clock += 60_000;
-    setPage([{ date: D1, session: '上午', group: 1, quota: 1 }]);
-    const logs: Array<Record<string, unknown>> = [];
-    const r = await run(
-      task(),
-      deps({
-        putObject: async () => {
-          throw new Error('s3 down');
-        },
-        publishReleased: async () => {
-          throw new Error('sns down');
-        },
-        log: (o) => logs.push(o),
-      }),
-    );
-    assert.deepEqual([r.outcome, r.deleteMessage, r.released], ['ok', true, 1]);
-    assert.ok(logs.some((l) => l.msg === 'post-commit side effect failed'));
+    assert.deepEqual([r.outcome, r.events], ['ok', 0]);
+    assert.equal((await pool.query('SELECT quota FROM slot')).rows[0].quota, 9);
+    assert.match((await taskRow(t.taskId)).error, /stale snapshot/);
   });
 
   test('格式錯誤的訊息不刪，讓它進 DLQ', async () => {
@@ -333,7 +363,11 @@ describe('worker processMessage（Postgres）', { skip }, () => {
   });
 
   test('資料庫錯誤會丟例外（呼叫端不刪訊息，讓 SQS 重送）', async () => {
-    const broken = { query: async () => { throw new Error('db down'); } } as unknown as pg.Pool;
+    const broken = {
+      query: async () => {
+        throw new Error('db down');
+      },
+    } as unknown as pg.Pool;
     await assert.rejects(run(task(), deps({ pool: broken })), /db down/);
   });
 });

@@ -1,19 +1,28 @@
 /**
- * 單一 SQS 訊息的處理流程（契約第 5 節）：
+ * 單一 SQS 訊息的處理流程（契約 §4.2、§5）。SQS 是 at-least-once，同一則訊息可能被重送，
+ * 甚至被兩台同時處理，所以每一步都以 task_id 為準、可以重做：
  *
- *   1. 認領任務：寫 scan_task_log.started_at；已完成的直接刪訊息（冪等）
- *   2. 降頻：長期沒場次的組合 24 小時才查一次，該跳過就記 skipped
- *   3. 抓頁面、parseSlots 解析
- *   4. 單一交易：鎖住該組合 → diff → 寫 slot、slot_event、scan_log、scan_task_log
- *   5. 交易提交後：原始 HTML 與事件放 S3、released 事件發 SNS
- *   6. 回傳 deleteMessage=true，呼叫端最後才刪 SQS 訊息
+ *   1. upsert scan_task_log（receive_count = SQS ApproximateReceiveCount），查 committed_at／finished_at
+ *        finished_at 有值            → 已做完，直接刪訊息
+ *        committed_at 有值、未 finished → 跳到 5，只補做副作用（不再抓頁面）
+ *   2. §4.2 官網保護：live 帶 runId → rejected；live 排隊超過 120 秒 → stale；
+ *      replay 而 REPLAY_BASE_URL 未設定或指向官網 → rejected。記錄後刪訊息、不重試
+ *   3. 降頻（只套用在 runId = null）：長期沒場次的組合 24 小時內 → skipped
+ *   4. 交易外抓頁面、parseSlots；交易內：
+ *        FOR UPDATE 鎖 scan_task_log 那一列並重新檢查 committed_at（別台先做完就 rollback、跳到 5）
+ *        → pg_advisory_xact_lock 鎖整個組合 → diff → 寫 slot、slot_event、scan_log
+ *        → 寫 committed_at、outcome，提交
+ *   5. 副作用：事件從 slot_event WHERE task_id 重建；原始 HTML、事件放 S3；released 發 SNS
+ *   6. 寫 finished_at，回傳 deleteMessage=true；呼叫端最後才刪訊息
+ *
+ * 步驟 1 與 2 的順序和契約文件相反：先 upsert 才知道這個任務是不是已經提交過。
+ * 已提交、只差副作用的任務不會再發 HTTP 請求，所以不必套 §4.2（否則重送時超過 120 秒，
+ * 已寫進 DB 的事件就永遠到不了 S3／SNS）。還沒提交的任務一律先過 §4.2 才可能抓頁面。
  *
  * 失敗分兩種：
- *   - 上游錯誤（官網／Replay 回錯、解析失敗、逾時）：記成 scan_log 錯誤與
- *     outcome=error，**照樣刪訊息**。和原型一樣交給下一圈重掃，而不是讓 SQS
- *     在一分鐘後重送 —— 對方已經在噴錯了，重打只會加重它的負擔。
- *   - 基礎設施錯誤（資料庫連不上、交易失敗）：丟例外、不刪訊息，
- *     讓 SQS 重送，三次後進 DLQ。
+ *   - 上游錯誤（HTTP 非 200、逾時、解析失敗）：記 scan_log.last_error 與 outcome=error，照樣刪訊息，
+ *     交給下一圈重掃（和原型一樣，不在對方噴錯時加重負擔）。
+ *   - 基礎設施錯誤（DB、S3、SNS）：不刪訊息，讓 SQS 重送；已提交的任務重送時只補做副作用。
  *
  * 所有 IO 都從 deps 注入，測試可以換成假的。
  */
@@ -22,13 +31,15 @@ import { parseSlots, type Slot } from '../../../../src/mvdis.ts';
 import { diffCombo, type SlotRow } from '../../../../src/db.ts';
 import {
   s3Keys,
+  taipeiIsoDate,
   type ReleasedEvent,
   type ScanTask,
   type SlotEvent,
+  type TaskOutcome,
 } from '../../../shared/contracts.ts';
 import type { Pool, PoolClient } from '../db.ts';
 import { withTransaction } from '../db.ts';
-import { fetchLocations, TargetGuardError, type FetchFn, type FetchResult } from './fetch.ts';
+import { fetchLocations, preflight, TargetGuardError, type FetchFn, type FetchResult, type Urls } from './fetch.ts';
 import type { WorkerIdentity } from './instance.ts';
 import { emfLine, type MetricsSink } from './metrics.ts';
 import { InvalidTaskError, parseTask } from './task.ts';
@@ -36,11 +47,6 @@ import { InvalidTaskError, parseTask } from './task.ts';
 /** 連續幾次抓到空結果就降頻（和原型 scan.ts 相同） */
 export const PRUNE_AFTER_EMPTY = 5;
 export const PRUNE_RECHECK_MS = 24 * 3600 * 1000;
-/**
- * 認領的租約長度。比 SQS 可見性逾時（60 秒）短一點：同一個 taskId 被重複送達、
- * 而另一台還在處理時，這台不會重做；原本那台若當掉，重送時租約已過期，可以接手。
- */
-export const CLAIM_LEASE_MS = 55_000;
 
 export type Deps = {
   pool: Pool;
@@ -50,24 +56,20 @@ export type Deps = {
   metrics: MetricsSink;
   log: (o: Record<string, unknown>) => void;
   identity: WorkerIdentity;
-  baseUrl: string | undefined;
+  urls: Urls;
   fetchTimeoutMs: number;
   now: () => number;
 };
 
 export type ProcessResult = {
   deleteMessage: boolean;
-  outcome: 'ok' | 'error' | 'skipped' | 'duplicate' | 'in_progress' | 'invalid';
+  /** TaskOutcome 之外：duplicate＝已做完的重送、resumed＝只補做副作用、invalid＝格式錯誤、retry＝副作用失敗待重送 */
+  outcome: TaskOutcome | 'duplicate' | 'resumed' | 'invalid' | 'retry';
   taskId?: string;
   events?: number;
   released?: number;
   error?: string;
 };
-
-/** 台灣日期 yyyy-mm-dd（和原型 scan.ts 的 todayIso 相同） */
-export function taiwanDate(ms: number): string {
-  return new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 10);
-}
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -84,21 +86,26 @@ export async function processMessage(body: string, receiveCount: number, deps: D
     throw e;
   }
 
-  const startedAt = deps.now();
-  const claim = await claimTask(deps.pool, task, startedAt, receiveCount, deps.identity);
-  if (claim === 'finished') return { deleteMessage: true, outcome: 'duplicate', taskId: task.taskId };
-  if (claim === 'in_progress') {
-    // 另一台正在處理同一個 taskId；不刪，可見性逾時後重送時就會看到 finished
-    return { deleteMessage: false, outcome: 'in_progress', taskId: task.taskId };
+  // === 1. 登記任務 ===
+  const state = await upsertTask(deps.pool, task, deps.now(), receiveCount, deps.identity);
+  if (state.finished) return { deleteMessage: true, outcome: 'duplicate', taskId: task.taskId };
+  if (state.committed) return finishSideEffects(task, null, null, deps, 'resumed');
+
+  // === 2. 官網保護 ===
+  const verdict = preflight(task, deps.now(), deps.urls.replayUrl);
+  if (verdict) {
+    deps.log({ level: 'warn', msg: verdict.outcome, taskId: task.taskId, target: task.target, reason: verdict.reason });
+    await finishWithoutScan(deps, task, verdict.outcome, verdict.reason);
+    return { deleteMessage: true, outcome: verdict.outcome, taskId: task.taskId, error: verdict.reason };
   }
 
-  // 降頻只套用在一般排程（runId = null）；實驗灌入的任務要逐筆處理，量測才準
-  if (task.runId === null && (await shouldSkip(deps.pool, task, startedAt))) {
-    await finishTask(deps.pool, task.taskId, deps.now(), 'skipped', null);
+  // === 3. 降頻（實驗灌入的任務要逐筆處理，量測才準） ===
+  if (task.runId === null && (await shouldSkip(deps.pool, task, deps.now()))) {
+    await finishWithoutScan(deps, task, 'skipped', null);
     return { deleteMessage: true, outcome: 'skipped', taskId: task.taskId };
   }
 
-  // === 抓取 ===
+  // === 4a. 抓取（交易外，避免長時間持有鎖） ===
   const t0 = deps.now();
   let fetched: FetchResult | null = null;
   let slots: Slot[] | null = null;
@@ -107,7 +114,7 @@ export async function processMessage(body: string, receiveCount: number, deps: D
     fetched = await fetchLocations(
       {
         target: task.target,
-        baseUrl: deps.baseUrl,
+        urls: deps.urls,
         licenseType: task.licenseType,
         lv1: task.lv1,
         dmvNo: task.dmvNo,
@@ -120,21 +127,26 @@ export async function processMessage(body: string, receiveCount: number, deps: D
     slots = parseSlots(fetched.html, task.licenseType, task.dmvNo);
   } catch (e) {
     if (e instanceof TargetGuardError) {
-      // 設定錯誤，沒有發出任何請求；不碰 scan_log（那是上游健康度）
+      // preflight 已經擋過，走到這裡代表兩道防線判斷不一致；一樣不發請求、記 rejected
       deps.log({ level: 'error', msg: 'target guard', taskId: task.taskId, error: e.message });
-      await finishTask(deps.pool, task.taskId, deps.now(), 'error', e.message);
-      emitMetrics(deps, task, 0, 1, 0, 'error');
-      return { deleteMessage: true, outcome: 'error', taskId: task.taskId, error: e.message };
+      await finishWithoutScan(deps, task, 'rejected', e.message);
+      return { deleteMessage: true, outcome: 'rejected', taskId: task.taskId, error: e.message };
     }
     upstreamError = errMsg(e);
   }
   const fetchedAt = deps.now();
   const durationMs = fetchedAt - t0;
 
-  // === 交易 ===
-  let events: SlotEvent[] = [];
-  if (slots === null) {
-    await withTransaction(deps.pool, async (c) => {
+  // === 4b. 交易 ===
+  const committed = await withTransaction(deps.pool, async (c) => {
+    const row = await c.query<{ committed_at: number | null }>(
+      'SELECT committed_at FROM scan_task_log WHERE task_id = $1 FOR UPDATE',
+      [task.taskId],
+    );
+    if (row.rows[0]?.committed_at != null) return false; // 別台先提交了
+    await c.query("SELECT pg_advisory_xact_lock(hashtext($1 || '|' || $2))", [task.licenseType, task.dmvNo]);
+
+    if (slots === null) {
       await c.query(
         `INSERT INTO scan_log (license_type, dmv_no, last_error, last_error_at, duration_ms)
          VALUES ($1, $2, $3, $4, $5)
@@ -144,23 +156,49 @@ export async function processMessage(body: string, receiveCount: number, deps: D
            duration_ms = EXCLUDED.duration_ms`,
         [task.licenseType, task.dmvNo, upstreamError, fetchedAt, durationMs],
       );
-      await finishTaskWith(c, task.taskId, deps.now(), 'error', upstreamError);
-    });
-  } else {
-    const okSlots = slots;
-    events = await withTransaction(deps.pool, (c) => applyScan(c, task, okSlots, fetchedAt, durationMs, deps.now));
+      await markCommitted(c, task.taskId, deps.now(), 'error', upstreamError, deps.identity);
+    } else {
+      const note = await applyScan(c, task, slots, fetchedAt, durationMs);
+      await markCommitted(c, task.taskId, deps.now(), 'ok', note, deps.identity);
+    }
+    return true;
+  });
+
+  if (!committed) {
+    // 同一個 taskId 被另一台搶先提交；這次抓的結果丟掉，只確保副作用有做
+    return finishSideEffects(task, null, null, deps, 'resumed');
   }
 
-  // === 交易提交後的副作用 ===
+  const releasedCount = slots === null ? 0 : await countReleased(deps.pool, task.taskId);
+  emitMetrics(deps, task, durationMs, slots === null ? 1 : 0, releasedCount, slots === null ? 'error' : 'ok');
+
+  // === 5、6. 副作用與完成 ===
+  return finishSideEffects(task, fetched?.html ?? null, fetchedAt, deps, slots === null ? 'error' : 'ok', upstreamError);
+}
+
+/**
+ * 補做（或第一次做）副作用，全部成功才寫 finished_at。
+ * 失敗時回傳 deleteMessage=false：訊息留著讓 SQS 重送，重送時 committed_at 已有值，只會走到這裡。
+ */
+async function finishSideEffects(
+  task: ScanTask,
+  html: string | null,
+  fetchedAt: number | null,
+  deps: Deps,
+  outcome: ProcessResult['outcome'],
+  error: string | null = null,
+): Promise<ProcessResult> {
+  const events = await loadEvents(deps.pool, task.taskId);
   const released: ReleasedEvent[] = events
     .filter((e) => e.kind === 'released')
     .map((e) => ({ ...e, kind: 'released' as const, target: task.target }));
+
   const side: Array<Promise<unknown>> = [];
-  if (fetched) {
+  if (html !== null && fetchedAt !== null) {
     side.push(
       deps.putObject(
-        s3Keys.raw(taiwanDate(fetchedAt), task.licenseType, task.dmvNo, fetchedAt),
-        gzipSync(fetched.html),
+        s3Keys.raw(taipeiIsoDate(fetchedAt), task.licenseType, task.dmvNo, fetchedAt),
+        gzipSync(html),
         'text/html; charset=utf-8',
         'gzip',
       ),
@@ -169,29 +207,32 @@ export async function processMessage(body: string, receiveCount: number, deps: D
   if (events.length) {
     side.push(
       deps.putObject(
-        s3Keys.events(taiwanDate(fetchedAt), task.taskId),
+        s3Keys.events(taipeiIsoDate(events[0].at), task.taskId),
         events.map((e) => JSON.stringify(e)).join('\n') + '\n',
         'application/x-ndjson',
       ),
     );
   }
   if (released.length) side.push(deps.publishReleased(released));
+
   const settled = await Promise.allSettled(side);
-  const sideErrors = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected').map((s) => errMsg(s.reason));
-  if (sideErrors.length) {
-    // 交易已提交、scan_task_log 已標記完成，重送也不會重做；只能記下來
-    deps.log({ level: 'error', msg: 'post-commit side effect failed', taskId: task.taskId, errors: sideErrors });
+  const failures = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected').map((s) => errMsg(s.reason));
+  if (failures.length) {
+    deps.log({ level: 'error', msg: 'side effect failed, message left for redelivery', taskId: task.taskId, errors: failures });
+    return { deleteMessage: false, outcome: 'retry', taskId: task.taskId, events: events.length, error: failures.join('; ') };
   }
 
-  const outcome = slots === null ? 'error' : 'ok';
-  emitMetrics(deps, task, durationMs, slots === null ? 1 : 0, released.length, outcome);
+  await deps.pool.query('UPDATE scan_task_log SET finished_at = $2 WHERE task_id = $1 AND finished_at IS NULL', [
+    task.taskId,
+    deps.now(),
+  ]);
   return {
     deleteMessage: true,
     outcome,
     taskId: task.taskId,
     events: events.length,
     released: released.length,
-    error: upstreamError ?? undefined,
+    error: error ?? undefined,
   };
 }
 
@@ -214,31 +255,23 @@ function emitMetrics(deps: Deps, task: ScanTask, durationMs: number, errors: num
   );
 }
 
-/**
- * 認領任務。用 ON CONFLICT 的 WHERE 一次判斷完：
- *   - 新任務 → 插入，回 claimed
- *   - 已完成（finished_at 有值）→ finished
- *   - 另一台租約還沒過期 → in_progress
- */
-export async function claimTask(
+/** 契約 §5 步驟 2 */
+export async function upsertTask(
   pool: Pool,
   task: ScanTask,
   now: number,
   receiveCount: number,
   id: WorkerIdentity,
-): Promise<'claimed' | 'finished' | 'in_progress'> {
-  const r = await pool.query(
+): Promise<{ committed: boolean; finished: boolean }> {
+  const r = await pool.query<{ committed_at: number | null; finished_at: number | null }>(
     `INSERT INTO scan_task_log
        (task_id, run_id, license_type, dmv_no, tier, target, enqueued_at, started_at, worker_id, az, receive_count)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (task_id) DO UPDATE SET
-       started_at = EXCLUDED.started_at,
-       worker_id = EXCLUDED.worker_id,
-       az = EXCLUDED.az,
-       receive_count = GREATEST(scan_task_log.receive_count + 1, EXCLUDED.receive_count)
-     WHERE scan_task_log.finished_at IS NULL
-       AND (scan_task_log.started_at IS NULL OR scan_task_log.started_at < $12)
-     RETURNING task_id`,
+       receive_count = EXCLUDED.receive_count,
+       -- 還沒提交的任務記下這次嘗試的開始時間；已提交的保留原本的
+       started_at = CASE WHEN scan_task_log.committed_at IS NULL THEN EXCLUDED.started_at ELSE scan_task_log.started_at END
+     RETURNING committed_at, finished_at`,
     [
       task.taskId,
       task.runId,
@@ -251,50 +284,91 @@ export async function claimTask(
       id.workerId,
       id.az,
       Math.max(1, receiveCount),
-      now - CLAIM_LEASE_MS,
     ],
   );
-  if (r.rowCount) return 'claimed';
-  const s = await pool.query<{ finished: boolean }>(
-    'SELECT finished_at IS NOT NULL AS finished FROM scan_task_log WHERE task_id = $1',
-    [task.taskId],
+  const row = r.rows[0];
+  return { committed: row.committed_at != null, finished: row.finished_at != null };
+}
+
+/** rejected／stale／skipped：沒有抓頁面、沒有交易，直接標記完成 */
+async function finishWithoutScan(deps: Deps, task: ScanTask, outcome: TaskOutcome, error: string | null) {
+  const now = deps.now();
+  await deps.pool.query(
+    `UPDATE scan_task_log
+        SET outcome = $2, error = $3, finished_at = $4, worker_id = $5, az = $6
+      WHERE task_id = $1 AND committed_at IS NULL AND finished_at IS NULL`,
+    [task.taskId, outcome, error, now, deps.identity.workerId, deps.identity.az],
   );
-  return s.rows[0]?.finished ? 'finished' : 'in_progress';
+}
+
+async function markCommitted(
+  c: PoolClient,
+  taskId: string,
+  now: number,
+  outcome: 'ok' | 'error',
+  error: string | null,
+  id: WorkerIdentity,
+) {
+  await c.query(
+    'UPDATE scan_task_log SET committed_at = $2, outcome = $3, error = $4, worker_id = $5, az = $6 WHERE task_id = $1',
+    [taskId, now, outcome, error, id.workerId, id.az],
+  );
 }
 
 async function shouldSkip(pool: Pool, task: ScanTask, now: number): Promise<boolean> {
-  const r = await pool.query<{ skip: boolean }>(
+  const r = await pool.query<{ skip: number }>(
     `SELECT (empty_streak >= $3 AND last_ok > $4) AS skip
        FROM scan_log WHERE license_type = $1 AND dmv_no = $2`,
     [task.licenseType, task.dmvNo, PRUNE_AFTER_EMPTY, now - PRUNE_RECHECK_MS],
   );
-  return r.rows[0]?.skip === true;
+  return r.rows[0]?.skip === 1; // §7.1：bool → 1/0
 }
 
-async function finishTask(pool: Pool, taskId: string, now: number, outcome: 'ok' | 'error' | 'skipped', error: string | null) {
-  await pool.query('UPDATE scan_task_log SET finished_at = $2, outcome = $3, error = $4 WHERE task_id = $1', [
-    taskId,
-    now,
-    outcome,
-    error,
-  ]);
+type EventDbRow = {
+  license_type: string;
+  dmv_no: string;
+  exam_date: string;
+  sec_key: string;
+  kind: SlotEvent['kind'];
+  old_quota: number | null;
+  new_quota: number | null;
+  at: number;
+  task_id: string | null;
+  run_id: string | null;
+};
+
+/** 契約 §5 步驟 5：事件一律從 slot_event 重建，補做時才和第一次完全相同 */
+export async function loadEvents(pool: Pool, taskId: string): Promise<SlotEvent[]> {
+  const r = await pool.query<EventDbRow>(
+    `SELECT license_type, dmv_no, exam_date, sec_key, kind, old_quota, new_quota, at, task_id, run_id
+       FROM slot_event WHERE task_id = $1 ORDER BY id`,
+    [taskId],
+  );
+  return r.rows.map((e) => ({
+    licenseType: e.license_type,
+    dmvNo: e.dmv_no,
+    examDate: e.exam_date,
+    secKey: e.sec_key,
+    kind: e.kind,
+    oldQuota: e.old_quota,
+    newQuota: e.new_quota,
+    at: e.at,
+    taskId: e.task_id,
+    runId: e.run_id,
+  }));
 }
 
-async function finishTaskWith(c: PoolClient, taskId: string, now: number, outcome: 'ok' | 'error', error: string | null) {
-  await c.query('UPDATE scan_task_log SET finished_at = $2, outcome = $3, error = $4 WHERE task_id = $1', [
-    taskId,
-    now,
-    outcome,
-    error,
-  ]);
+async function countReleased(pool: Pool, taskId: string): Promise<number> {
+  const r = await pool.query<{ n: number }>(
+    "SELECT count(*) AS n FROM slot_event WHERE task_id = $1 AND kind = 'released'",
+    [taskId],
+  );
+  return r.rows[0]?.n ?? 0;
 }
 
 /**
- * 交易內：鎖住組合 → diff → 寫入。回傳寫進 slot_event 的事件。
- *
- * 鎖的順序：先鎖 scan_log 那一列當作「這個組合的互斥鎖」，再 SELECT … FOR UPDATE 鎖 slot。
- * 只鎖 slot 不夠 —— 組合第一次被掃時還沒有任何 slot 列，兩台同時處理會各自插入、
- * 各記一次 new 事件。
+ * 交易內、已持有組合的 advisory lock：diff → 寫 slot、slot_event、scan_log。
+ * 回傳要寫進 scan_task_log.error 的備註（正常為 null）。
  */
 export async function applyScan(
   c: PoolClient,
@@ -302,35 +376,21 @@ export async function applyScan(
   slots: Slot[],
   fetchedAt: number,
   durationMs: number,
-  now: () => number,
-): Promise<SlotEvent[]> {
-  await c.query('INSERT INTO scan_log (license_type, dmv_no) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
+): Promise<string | null> {
+  // 比這份快照更新的結果已經寫進去了（兩台處理同一組合、晚抓的先提交）→ 不能用舊資料蓋掉
+  const log = await c.query<{ last_ok: number | null }>(
+    'SELECT last_ok FROM scan_log WHERE license_type = $1 AND dmv_no = $2',
+    [task.licenseType, task.dmvNo],
+  );
+  const lastOk = log.rows[0]?.last_ok ?? null;
+  if (lastOk !== null && lastOk > fetchedAt) return 'stale snapshot, not applied';
+
+  // §7.1 型別規則下 exam_date 是 'yyyy-mm-dd'、旗標是 0/1、epoch 是 Number，直接符合 diffCombo 的 SlotRow
+  const existing = await c.query<SlotRow>('SELECT * FROM slot WHERE license_type = $1 AND dmv_no = $2 FOR UPDATE', [
     task.licenseType,
     task.dmvNo,
   ]);
-  const lock = await c.query<{ last_ok: number | null }>(
-    'SELECT last_ok::float8 AS last_ok FROM scan_log WHERE license_type = $1 AND dmv_no = $2 FOR UPDATE',
-    [task.licenseType, task.dmvNo],
-  );
-  const existing = await c.query<SlotRow>(
-    `SELECT license_type, dmv_no, to_char(exam_date, 'YYYY-MM-DD') AS exam_date, sec_key, quota,
-            CASE WHEN signup_available THEN 1 ELSE 0 END AS signup_available,
-            sec_desc, session, grp, weekday,
-            CASE WHEN is_weekend THEN 1 ELSE 0 END AS is_weekend,
-            first_seen::float8 AS first_seen, updated_at::float8 AS updated_at
-       FROM slot WHERE license_type = $1 AND dmv_no = $2
-       FOR UPDATE`,
-    [task.licenseType, task.dmvNo],
-  );
-
-  // 比這份快照更新的結果已經寫進去了（兩台處理同一組合、晚抓的先提交）→ 不能用舊資料蓋掉
-  const lastOk = lock.rows[0]?.last_ok ?? null;
-  if (lastOk !== null && lastOk > fetchedAt) {
-    await finishTaskWith(c, task.taskId, now(), 'ok', 'stale snapshot, not applied');
-    return [];
-  }
-
-  const d = diffCombo(task.licenseType, task.dmvNo, slots, existing.rows, fetchedAt, taiwanDate(fetchedAt));
+  const d = diffCombo(task.licenseType, task.dmvNo, slots, existing.rows, fetchedAt, taipeiIsoDate(fetchedAt));
 
   if (d.upserts.length) {
     const cols = 14;
@@ -379,49 +439,37 @@ export async function applyScan(
     );
   }
 
-  const events: SlotEvent[] = d.events.map((e) => ({
-    licenseType: e.licenseType,
-    dmvNo: e.dmvNo,
-    examDate: e.examDate,
-    secKey: e.secKey,
-    kind: e.kind,
-    oldQuota: e.oldQuota,
-    newQuota: e.newQuota,
-    at: fetchedAt,
-    taskId: task.taskId,
-    runId: task.runId,
-  }));
-
-  if (events.length) {
+  if (d.events.length) {
+    const ev = d.events;
     await c.query(
       `INSERT INTO slot_event (license_type, dmv_no, exam_date, sec_key, kind, old_quota, new_quota, at, task_id, run_id)
-       SELECT * FROM unnest($1::text[], $2::text[], $3::date[], $4::text[], $5::text[],
-                            $6::int[], $7::int[], $8::bigint[], $9::uuid[], $10::text[])`,
+       SELECT l, d, e, s, k, o, n, $8::bigint, $9::uuid, $10::text
+         FROM unnest($1::text[], $2::text[], $3::date[], $4::text[], $5::text[], $6::int[], $7::int[])
+              AS t(l, d, e, s, k, o, n)`,
       [
-        events.map((e) => e.licenseType),
-        events.map((e) => e.dmvNo),
-        events.map((e) => e.examDate),
-        events.map((e) => e.secKey),
-        events.map((e) => e.kind),
-        events.map((e) => e.oldQuota),
-        events.map((e) => e.newQuota),
-        events.map((e) => e.at),
-        events.map((e) => e.taskId),
-        events.map((e) => e.runId),
+        ev.map((e) => e.licenseType),
+        ev.map((e) => e.dmvNo),
+        ev.map((e) => e.examDate),
+        ev.map((e) => e.secKey),
+        ev.map((e) => e.kind),
+        ev.map((e) => e.oldQuota),
+        ev.map((e) => e.newQuota),
+        fetchedAt,
+        task.taskId,
+        task.runId,
       ],
     );
   }
 
   await c.query(
-    `UPDATE scan_log SET
-       last_ok = $3,
-       rows_seen = $4,
-       empty_streak = CASE WHEN $4::int = 0 THEN empty_streak + 1 ELSE 0 END,
-       duration_ms = $5
-     WHERE license_type = $1 AND dmv_no = $2`,
+    `INSERT INTO scan_log (license_type, dmv_no, last_ok, rows_seen, empty_streak, duration_ms)
+     VALUES ($1, $2, $3, $4, CASE WHEN $4::int = 0 THEN 1 ELSE 0 END, $5)
+     ON CONFLICT (license_type, dmv_no) DO UPDATE SET
+       last_ok = EXCLUDED.last_ok,
+       rows_seen = EXCLUDED.rows_seen,
+       empty_streak = CASE WHEN EXCLUDED.rows_seen = 0 THEN scan_log.empty_streak + 1 ELSE 0 END,
+       duration_ms = EXCLUDED.duration_ms`,
     [task.licenseType, task.dmvNo, fetchedAt, slots.length, durationMs],
   );
-
-  await finishTaskWith(c, task.taskId, now(), 'ok', null);
-  return events;
+  return null;
 }

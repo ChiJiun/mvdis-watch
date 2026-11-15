@@ -1,42 +1,74 @@
 /**
- * 抓查詢頁。表單欄位與原型 src/mvdis.ts 的 querySlots 相同，
- * 差別是網址改由 MVDIS_BASE_URL 決定（實驗時指向 VPC 內的 Replay 站），
- * 並在 replay 任務上加了「絕不打官網」的防線。
+ * 抓查詢頁與官網保護（契約 §4.2、§4.3）。
+ *
+ * 網址依任務的 target 選：live 用 MVDIS_LIVE_URL、replay 用 REPLAY_BASE_URL。
+ * replay 任務絕不能打到官網 —— preflight() 在發請求前擋一次，resolveTargetUrl() 再擋一次，
+ * replay 請求也不跟隨轉址。
  */
 import { rocToday } from '../../../../src/mvdis.ts';
-import { MVDIS_PATH, type ScanTarget } from '../../../shared/contracts.ts';
+import {
+  LIVE_HOSTNAME,
+  LIVE_TASK_MAX_AGE_MS,
+  MVDIS_PATH,
+  mvdisFormFields,
+  type ScanTarget,
+  type ScanTask,
+} from '../../../shared/contracts.ts';
+import { DEFAULT_MVDIS_BASE_URL } from '../config.ts';
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
-/** 官網網域：mvdis.gov.tw 本身與所有子網域 */
+/** 官網網域：mvdis.gov.tw 本身與所有子網域（大小寫、結尾的點都算） */
 export function isOfficialHost(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/\.+$/, '');
-  return h === 'mvdis.gov.tw' || h.endsWith('.mvdis.gov.tw');
+  return h === LIVE_HOSTNAME || h.endsWith(`.${LIVE_HOSTNAME}`);
+}
+
+export type Urls = { liveUrl: string | undefined; replayUrl: string | undefined };
+
+export type Verdict = { outcome: 'rejected' | 'stale'; reason: string } | null;
+
+/**
+ * 契約 §4.2 的三項檢查，依序判斷，任何 HTTP 請求之前做。
+ * 回傳 null 表示可以抓。
+ */
+export function preflight(task: ScanTask, now: number, replayUrl: string | undefined): Verdict {
+  if (task.target === 'live' && task.runId !== null) {
+    return { outcome: 'rejected', reason: 'live 任務不得帶 runId（實驗只能送 replay 任務）' };
+  }
+  if (task.target === 'live' && now - task.enqueuedAt > LIVE_TASK_MAX_AGE_MS) {
+    return { outcome: 'stale', reason: `live 任務已排隊 ${Math.round((now - task.enqueuedAt) / 1000)} 秒，超過 ${LIVE_TASK_MAX_AGE_MS / 1000} 秒不抓` };
+  }
+  if (task.target === 'replay') {
+    if (!replayUrl) return { outcome: 'rejected', reason: 'REPLAY_BASE_URL 未設定，拒絕 replay 任務' };
+    let host: string;
+    try {
+      host = new URL(replayUrl).hostname;
+    } catch {
+      return { outcome: 'rejected', reason: `REPLAY_BASE_URL 不是合法網址：${replayUrl}` };
+    }
+    if (isOfficialHost(host)) return { outcome: 'rejected', reason: `REPLAY_BASE_URL 指向官網（${host}），拒絕 replay 任務` };
+  }
+  return null;
 }
 
 export class TargetGuardError extends Error {}
 
-/**
- * 決定這個任務要打的完整網址。
- * replay 任務的 MVDIS_BASE_URL 一定要明確設定、而且不能是官網；
- * 不符合就丟 TargetGuardError，呼叫端不能發出任何請求。
- */
-export function resolveTargetUrl(target: ScanTarget, baseUrl: string | undefined): URL {
+/** 決定完整網址；replay 指向官網或未設定時丟 TargetGuardError（第二道防線） */
+export function resolveTargetUrl(target: ScanTarget, urls: Urls): URL {
   if (target === 'replay') {
-    if (!baseUrl) throw new TargetGuardError('replay 任務需要明確設定 MVDIS_BASE_URL（Replay 站位址）');
-    const u = new URL(MVDIS_PATH, baseUrl);
-    if (isOfficialHost(u.hostname)) {
-      throw new TargetGuardError(`replay 任務的 MVDIS_BASE_URL 指向官網（${u.hostname}），拒絕發出請求`);
-    }
+    if (!urls.replayUrl) throw new TargetGuardError('REPLAY_BASE_URL 未設定');
+    const u = new URL(MVDIS_PATH, urls.replayUrl);
+    if (isOfficialHost(u.hostname)) throw new TargetGuardError(`REPLAY_BASE_URL 指向官網（${u.hostname}）`);
     return u;
   }
-  return new URL(MVDIS_PATH, baseUrl || 'https://www.mvdis.gov.tw');
+  return new URL(MVDIS_PATH, urls.liveUrl || DEFAULT_MVDIS_BASE_URL);
 }
 
 export type FetchInput = {
   target: ScanTarget;
-  baseUrl: string | undefined;
+  urls: Urls;
   licenseType: string;
   lv1: string;
   dmvNo: string;
@@ -49,18 +81,10 @@ export type FetchResult = { status: number; html: string; url: string };
 export type FetchFn = typeof fetch;
 
 export async function fetchLocations(input: FetchInput, fetchFn: FetchFn = fetch): Promise<FetchResult> {
-  const url = resolveTargetUrl(input.target, input.baseUrl);
-  const body = new URLSearchParams({
-    method: 'query',
-    licenseTypeCode: input.licenseType,
-    expectExamDateStr: rocToday(input.now),
-    _onlyWeekend: 'on',
-    dmvNoLv1: input.lv1,
-    dmvNo: input.dmvNo,
-    secDateStr: '',
-    secId: '',
-    divId: '',
-  });
+  const url = resolveTargetUrl(input.target, input.urls);
+  const body = new URLSearchParams(
+    mvdisFormFields({ licenseType: input.licenseType, lv1: input.lv1, dmvNo: input.dmvNo, dateStr: rocToday(input.now) }),
+  );
   const res = await fetchFn(url, {
     method: 'POST',
     headers: {
