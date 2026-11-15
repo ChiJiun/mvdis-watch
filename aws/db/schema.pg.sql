@@ -1,5 +1,6 @@
 -- AWS 版（RDS PostgreSQL 16）的 schema，從原型的 schema.sql（D1／SQLite）移植。
 -- 時間欄位維持 epoch 毫秒（BIGINT），和原型與 aws/shared/contracts.ts 一致。
+-- DATE／BIGINT／BOOLEAN 讀出時一律依 CONTRACTS.md §7.1 轉換（date→字串、bigint→Number、bool→0/1）。
 
 CREATE TABLE IF NOT EXISTS slot (
   license_type     TEXT    NOT NULL,
@@ -32,13 +33,14 @@ CREATE TABLE IF NOT EXISTS slot_event (
   old_quota    INTEGER,
   new_quota    INTEGER,
   at           BIGINT NOT NULL,
-  task_id      UUID,
+  task_id      UUID,            -- AWS 版產生的事件一定有；從原型匯入的歷史事件為 NULL
   run_id       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_event_at      ON slot_event (at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_kind_at ON slot_event (kind, at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_station ON slot_event (dmv_no, at DESC);
+CREATE INDEX IF NOT EXISTS idx_event_task    ON slot_event (task_id);
 
 CREATE TABLE IF NOT EXISTS scan_log (
   license_type  TEXT    NOT NULL,
@@ -52,22 +54,24 @@ CREATE TABLE IF NOT EXISTS scan_log (
   PRIMARY KEY (license_type, dmv_no)
 );
 
--- AWS 版新增：每個 SQS 任務一列，用來量測每輪耗時、確認有沒有漏掃，也是 worker 冪等的依據
+-- AWS 版新增：每個 SQS 任務一列，用來量測每輪耗時、確認有沒有漏掃，也是 worker 冪等的依據（CONTRACTS.md §5）
 CREATE TABLE IF NOT EXISTS scan_task_log (
-  task_id      UUID    PRIMARY KEY,
-  run_id       TEXT,
-  license_type TEXT    NOT NULL,
-  dmv_no       TEXT    NOT NULL,
-  tier         TEXT    NOT NULL,
-  target       TEXT    NOT NULL,
-  enqueued_at  BIGINT  NOT NULL,
-  started_at   BIGINT,
-  finished_at  BIGINT,
-  outcome      TEXT    CHECK (outcome IN ('ok','error','skipped')),
-  error        TEXT,
-  worker_id    TEXT,            -- EC2 instance id
-  az           TEXT,            -- 可用區域，E2 用來確認故障區的任務被別區接手
-  receive_count INTEGER NOT NULL DEFAULT 1
+  task_id       UUID    PRIMARY KEY,
+  run_id        TEXT,
+  license_type  TEXT    NOT NULL,
+  dmv_no        TEXT    NOT NULL,
+  tier          TEXT    NOT NULL CHECK (tier IN ('hot','cold')),
+  target        TEXT    NOT NULL CHECK (target IN ('live','replay')),
+  enqueued_at   BIGINT  NOT NULL,
+  started_at    BIGINT,
+  committed_at  BIGINT,           -- DB 交易提交的時間
+  finished_at   BIGINT,           -- S3／SNS 副作用都完成的時間；有值才算這個任務做完
+  outcome       TEXT    CHECK (outcome IN ('ok','error','skipped','stale','rejected')),
+  error         TEXT,
+  worker_id     TEXT,             -- EC2 instance id
+  az            TEXT,             -- 可用區域，E2 用來確認故障區的任務被別區接手
+  receive_count INTEGER NOT NULL DEFAULT 1  -- 取自 SQS ApproximateReceiveCount
 );
 
-CREATE INDEX IF NOT EXISTS idx_task_run ON scan_task_log (run_id, finished_at);
+CREATE INDEX IF NOT EXISTS idx_task_run      ON scan_task_log (run_id, finished_at);
+CREATE INDEX IF NOT EXISTS idx_task_finished ON scan_task_log (finished_at);
