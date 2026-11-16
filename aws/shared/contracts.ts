@@ -104,15 +104,27 @@ export const PG_TYPE_RULES: Record<number, (v: string) => unknown> = {
   16: (v) => (v === 't' ? 1 : 0), // bool → 0/1
 };
 
+/**
+ * 各 target 的 slot／slot_event／scan_log 所在的 Postgres schema（CONTRACTS.md §7.3）。
+ * scan_task_log 一律在 public。worker 在交易內執行 `SET LOCAL search_path = <schema>, public`。
+ */
+export const DB_SCHEMA_BY_TARGET: Record<ScanTarget, 'public' | 'replay'> = {
+  live: 'public',
+  replay: 'replay',
+};
+
 /** 台灣時間的 ISO 日期，S3 dt 分區用 */
 export function taipeiIsoDate(epochMs: number): string {
   return new Date(epochMs + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-/** S3 物件鍵；isoDate 一律用 taipeiIsoDate() */
+/**
+ * S3 物件鍵。isoDate 一律用 taipeiIsoDate(scan_task_log.committed_at)，補做副作用時也用同一個值，
+ * 鍵只由 taskId 決定，同一個任務重做只會覆寫同一個物件（CONTRACTS.md §5）。
+ */
 export const s3Keys = {
-  raw: (isoDate: string, licenseType: string, dmvNo: string, epochMs: number) =>
-    `raw/dt=${isoDate}/license=${licenseType}/dmv=${dmvNo}/${epochMs}.html.gz`,
+  raw: (isoDate: string, licenseType: string, dmvNo: string, taskId: string) =>
+    `raw/dt=${isoDate}/license=${licenseType}/dmv=${dmvNo}/${taskId}.html.gz`,
   events: (isoDate: string, taskId: string) => `events/dt=${isoDate}/${taskId}.jsonl`,
   release: (name: string) => `releases/${name}`,
 };
