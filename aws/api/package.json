@@ -1,0 +1,28 @@
+{
+  "name": "mvdis-watch-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "mvdis-watch AWS 版公開 API 服務（EC2 ASG）",
+  "scripts": {
+    "gen": "node scripts/gen-static.mjs",
+    "build": "node scripts/gen-static.mjs && node scripts/build.mjs",
+    "start": "node dist/api.mjs",
+    "dev": "node scripts/gen-static.mjs && node --experimental-strip-types --no-warnings src/server.ts",
+    "typecheck": "node scripts/gen-static.mjs && tsc --noEmit",
+    "test": "node scripts/gen-static.mjs && node --experimental-strip-types --no-warnings --test --test-concurrency=1 test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1169.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
