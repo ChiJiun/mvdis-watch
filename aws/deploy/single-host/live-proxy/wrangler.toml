@@ -8,5 +8,11 @@ workers_dev = true
 # 不需要預覽網址
 preview_urls = false
 
+# 讓 Worker 在離 GCP 台灣區域（asia-east1，彰化）最近的節點執行。
+# 沒設定時會在離請求來源最近的節點執行；VM 在東京時，從東京節點連官網每次約 20 秒（實測），
+# 會碰到 worker 的 20 秒抓取逾時。不用 placement.hostname：它會用 HTTP HEAD 探測官網，等於額外打官網。
+[placement]
+region = "gcp:asia-east1"
+
 [observability]
 enabled = true

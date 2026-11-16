@@ -99,6 +99,9 @@ worker 會實際查詢監理服務網。上限和保護規則與 AWS 版相同�
 - 只接受 `ALLOWED_IPS` 裡的來源 IP（部署時帶入，不寫進 repo）；沒設定就全部拒絕。
 - 只轉發到官網的查詢端點（固定路徑），只允許 GET／POST，不轉送 cookie。
 - 不另外限速：請求量仍由這裡的 scheduler 控制（每分鐘最多 14 則）。
+- `wrangler.toml` 設了 `placement.region = "gcp:asia-east1"`，讓 Worker 在台灣附近的節點發請求。
+  沒設的話會在離 VM 最近的節點（東京）執行，實測每次要約 20 秒，會碰到 worker 的 20 秒抓取逾時；
+  設了之後約 0.3 秒，回應標頭 `cf-placement: remote-TPE`。
 
 ```bash
 # 在有安裝 wrangler 的電腦上（例如 repo 根目錄 npm ci 之後）
@@ -109,8 +112,11 @@ npx wrangler deploy --var ALLOWED_IPS:<VM 的公開 IPv4>
 curl -s -o /dev/null -w "%{http_code}\n" https://mvdis-live-proxy.<子網域>.workers.dev/m3-emv-trn/exm/locations
 ```
 
-確認回 200 之後，在 VM 的 `.env` 設定 `MVDIS_LIVE_URL=https://mvdis-live-proxy.<子網域>.workers.dev`，
+確認回 200（而且很快）之後，在 VM 的 `.env` 設定 `MVDIS_LIVE_URL=https://mvdis-live-proxy.<子網域>.workers.dev`，
 再 `docker compose up -d worker`。
+
+> 手動測試時要注意：`docker compose stop worker` 之後，LocalStack 不會發現 worker 的長輪詢（20 秒）已經斷線，
+> 這段時間送進佇列的訊息會被交給已經停掉的 worker，60 秒後才重新出現。停掉 worker 後至少等 30 秒再送測試任務。
 
 > 注意：這等於讓 Cloudflare 代替海外主機向官網發請求。官網若明確禁止自動查詢或加上驗證機制，應停止使用（見提案的「不在範圍內」）。
 
