@@ -32,6 +32,8 @@ aws events enable-rule --name mvdis-dispatch-every-minute
 4. 灌量測輪 360 × `--repeat` 則（`runId = <prefix>-n<n>`），等全部完成
 5. 結束後（含例外）把 ASG 還原成原本的 min/max/desired，Replay 關掉擾動；兩項各自處理，ASG 還原失敗會印出手動指令，Replay 仍會被還原
 
+任何一階（暖身或量測）在 `--round-timeout` 內沒做完就停止整個 E3，不進下一階：沒做完的任務會混進下一階，下一階的 TRUNCATE 也可能卡在 worker 的鎖上。
+
 為什麼要暖身：資料庫若沒有和 Replay 同步，量測輪會寫出大量 `new`／`gone` 事件，寫入量和穩態不同，
 而且無法判斷某個 `released` 是不是由 clock 擾動造成的。
 
@@ -42,6 +44,10 @@ aws events enable-rule --name mvdis-dispatch-every-minute
   - `reverted`：被偵測前就又翻回額滿，任何掃描都看不到。
   - `detected`：延遲 = 第一筆偵測時間 − 釋位時間，取 p50／p95。
   - `undetected`：可偵測（發生在該組最後一次開始抓取之前、沒有翻回）卻沒偵測到。**正常應該是 0**，可當正確性檢查。
+  - `comboNotScanned`：該組合這一輪完全沒被抓（漏掃），不列入分母但另外計數；`undetected = 0` 要和 `comboNotScanned = 0`、
+    `missingCombos = 0` 一起看。
+  - 「最後一次開始抓取」用 `scan_task_log.started_at`：worker 收到訊息時寫入，比實際發出 HTTP 請求早一點（還要經過契約 §4.2 的檢查），
+    誤差在毫秒級；契約沒有另外定義 `started_at`，這裡以 worker 的實作為準。
   報告建議把實測延遲和推估值（最壞 T(n)、平均 T(n)/2）並列。
 - `--repeat`：n=8 時一輪 360 則只要幾秒，會被 SQS 長輪詢、worker 啟動與尾端效應主導，speedup 會偏低。
   量 speedup 建議 `--repeat 10`（3,600 則）。同一組合在一輪內會被掃多次；契約 §5 提到「同組合兩個任務亂序提交」會產生一對來回的事件，

@@ -163,6 +163,10 @@ def detection_latency(
     每一筆 Replay 釋位歸到下列其中一類：
       - afterLastScan：發生在該組合這一輪最後一次開始抓取之後（或 window_end_ms 之後），本來就不可能被這一輪看到，不列入分母。
         沒有給 last_scan_start_ms 時只用 window_end_ms 判斷。
+      - comboNotScanned：該組合這一輪完全沒有開始抓取（scan_task_log 沒有 started_at），屬於漏掃，不列入分母，
+        但另外計數，避免只看 undetected = 0 就下結論（漏掃組數另見 summarize_run 的 missingCombos）。
+      「最後一次開始抓取」用 scan_task_log.started_at：worker 收到訊息時寫入，比實際發出 HTTP 請求早一點（還要經過 §4.2 檢查），
+        誤差在毫秒級。
       - reverted：同一場次在被偵測之前就又翻回額滿（Replay 有 filled 事件），任何掃描都看不到這次釋位。
         偵測時間用的是提交時間，抓取當下其實看到了、但在提交前翻回額滿的情況也會被歸到這裡（以預設擾動頻率很少見）。
       - detected：取「釋位之後第一筆偵測」，延遲 = 偵測時間 − 釋位時間。
@@ -180,7 +184,7 @@ def detection_latency(
             filled_by_key.setdefault((f["licenseType"], f["dmvNo"], f["examDate"], f["secKey"]), []).append(float(f["at"]))
 
     lat: List[float] = []
-    undetected = reverted = after_last_scan = 0
+    undetected = reverted = after_last_scan = not_scanned = 0
     for f in flips:
         if f.get("kind") != "released":
             continue
@@ -190,7 +194,10 @@ def detection_latency(
             continue
         if last_scan_start_ms is not None:
             last = last_scan_start_ms.get((f["licenseType"], f["dmvNo"]))
-            if last is None or at >= last:
+            if last is None:
+                not_scanned += 1
+                continue
+            if at >= last:
                 after_last_scan += 1
                 continue
         k = (f["licenseType"], f["dmvNo"], f["examDate"], f["secKey"])
@@ -203,12 +210,13 @@ def detection_latency(
         else:
             lat.append(hit - at)
     return {
-        "flips": len(lat) + undetected + reverted + after_last_scan,
+        "flips": len(lat) + undetected + reverted + after_last_scan + not_scanned,
         "detectable": len(lat) + undetected,
         "detected": len(lat),
         "undetected": undetected,
         "reverted": reverted,
         "afterLastScan": after_last_scan,
+        "comboNotScanned": not_scanned,
         "p50Ms": percentile(lat, 50),
         "p95Ms": percentile(lat, 95),
         "maxMs": max(lat) if lat else None,

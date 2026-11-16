@@ -21,8 +21,30 @@
 
 ## 執行環境
 
-RDS 和 Replay 站都在 private subnet，**E1 佇列端、E2、E3 要在 bastion（VPC 內）上跑**；E1 的 Locust 建議另開一台
-`t3.large` 以上的 EC2（2,000 個使用者單機會吃滿 CPU，加 `--processes -1` 用滿所有核心）；E4 是純計算，哪裡都能跑。
+RDS 和 Replay 站都在 private subnet。**執行 E1 佇列端（`--watch` 讀資料庫時）、E2、E3 的主機必須同時連得到：**
+
+| 目標 | 位址 | 用途 |
+|---|---|---|
+| RDS | `rds_endpoint`:5432 | 讀 `public.scan_task_log`、`replay.slot_event`，清空 replay schema |
+| Replay 站 | `replay_base_url`（`http://10.0.10.200:8080`） | `/admin/reset`、`/admin/stats`、`/admin/events` |
+| AWS API | SQS、Auto Scaling、EC2、RDS、Secrets Manager（經 NAT） | 送任務、調整 ASG、故障注入、讀帳密 |
+
+預定的實驗主機是 **bastion**，但 `main` 目前的 infra（PR #6）**不允許** bastion 連這兩個位址：
+
+- RDS-SG 只收 API-SG、Worker-SG 的 5432（`aws/infra/security_groups.tf` 的 `rds_from_app`）。
+- Replay-SG 只收 Worker-SG 的 8080（`replay_from_worker`）。
+
+所以要先等 infra 的後續 PR 補上兩條 ingress 規則，bastion 才能當實驗主機：
+
+- `rds_from_bastion`：RDS-SG 收 Bastion-SG 的 5432。
+- `replay_from_bastion`：Replay-SG 收 Bastion-SG 的 8080。
+
+規則上線前在 bastion 上跑，E1（`--watch`／`--truncate-replay-db`）、E2、E3 會在第一次連資料庫或 Replay 時逾時停止
+（E1、E2 停在任何破壞性動作之前；E3 若已把 worker ASG 釘住台數，會由 `finally` 還原）。也不能改用 worker 當跳板（`ssh -J bastion -L … <worker>`）：
+E2 會終止 AZ-a 的 worker、E3 會把 worker ASG 縮到 1 台，跳板所在的 worker 可能在實驗中被關掉。
+
+E1 的 Locust 只打公開的 CloudFront，不需要上面的規則；建議另開一台 `t3.large` 以上的 EC2（2,000 個使用者單機會吃滿 CPU，
+加 `--processes -1` 用滿所有核心）。E4 是純計算，哪裡都能跑。
 
 ```bash
 # bastion（Amazon Linux 2023）上
@@ -58,9 +80,10 @@ worker 處理 `target=replay` 任務時，`slot`／`slot_event`／`scan_log` 寫
   推到 Discord（notifier 的 SNS filter 只收 `target=live` 是第二層保護）。
 - 實驗腳本讀的表：任務量測讀 `public.scan_task_log WHERE target = 'replay'`；E3 的偵測紀錄讀 `replay.slot_event`。
   腳本裡沒有任何 SQL 碰 `public` 的 `slot`／`slot_event`／`scan_log`（單元測試會檢查）。
-- **實驗前清空 replay schema**：E1（有設定資料庫時）、E2、E3（每一階暖身前）會先執行
+- **實驗前清空 replay schema**：E2、E3（每一階暖身前）會先執行
   `TRUNCATE replay.slot, replay.slot_event, replay.scan_log RESTART IDENTITY`，讓每次實驗都從空的 replay 狀態開始；
-  不想清空時加 `--keep-replay-db`。只清 replay schema，`public` 與 `scan_task_log` 都不動（scan_task_log 靠 runId 區分）。
+  不想清空時加 `--keep-replay-db`。E1 不讀 replay 表，預設**不清**（避免清掉同時在跑的 E3 資料），需要時加 `--truncate-replay-db`。
+  TRUNCATE 前會設 `lock_timeout`（30 秒），若 worker 還握著 replay 表的鎖會直接報錯，不會無限等待。只清 replay schema，`public` 與 `scan_task_log` 都不動（scan_task_log 靠 runId 區分）。
   手動清空：`psql "$DATABASE_URL" -c 'TRUNCATE replay.slot, replay.slot_event, replay.scan_log RESTART IDENTITY'`。
 
 ## 實驗前的 infra 設定
@@ -73,8 +96,10 @@ worker 處理 `target=replay` 任務時，`slot`／`slot_event`／`scan_log` 寫
   這時實驗結果的 `scanTaskLog.rejected` 會大於 0、漏掃組數等於 360。
 - E2 前：`worker_min_size = 2`（預設 1），確保兩個 AZ 各有 worker；API ASG 同理。
 - E3 跑到 8 台：`worker_max_size >= 8`（預設就是 8）。
-- Replay 站的 `/admin/*` 預設不驗證身分（只在 VPC 內）：請確認 infra 的 Replay security group 只開放 worker SG 與 bastion，
-  或設定 `REPLAY_ADMIN_TOKEN`（實驗腳本目前不帶這個標頭，設定後要一併處理）。
+- Replay 站的 `/admin/*` 預設不驗證身分，靠 security group 隔離：Replay-SG 目前只開放 Worker-SG（`replay_from_worker`），
+  infra 後續 PR 會再加 Bastion-SG（`replay_from_bastion`），之後就只有 Worker-SG 和 Bastion-SG 連得到。
+  若要再加一層，可以在 Replay 站設定 `REPLAY_ADMIN_TOKEN`，並在執行實驗的主機設定同名環境變數：
+  `common/replay_admin.py` 會自動帶上 `x-admin-token` 標頭。
 
 量測期間暫停每分鐘的排程（否則 dispatcher 送的任務會和實驗任務搶 worker），結束後恢復。
 因為 replay 資料在獨立的 schema，恢復排程不需要額外清理正式資料：

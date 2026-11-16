@@ -116,6 +116,10 @@ def main(argv=None) -> int:
             run_id = f"{prefix}-n{n}"
             send = send_tasks(cfg["queue_url"], build_tasks(run_id, measure_count, combos), dry_run=False, sqs_client=sqs)
             ok = wait_run_finished(conn, run_id, measure_count, timeout_s=a.round_timeout)
+            if not ok:
+                # 不進下一階：沒做完的任務會混進下一階拉長耗時，下一階的 TRUNCATE 也可能卡在 worker 的鎖上
+                # （SystemExit 會經過 finally 還原 ASG 與 Replay）
+                raise SystemExit(f"量測輪 {run_id} 在 {a.round_timeout:.0f}s 內沒有全部完成，停止 E3；先確認佇列清空再重跑")
             run_rows = fetch_run_rows(conn, run_id)
             summary = summarize_run(run_rows, combos, measure_count)
             rnd: Dict[str, Any] = {"workers": n, "runId": run_id, "finished": ok, "send": send, "scanTaskLog": summary}

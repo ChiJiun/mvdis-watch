@@ -222,6 +222,7 @@ class TestAnalysis(unittest.TestCase):
             flip("released", 7000, "A", "74", "2026-12-02", "1:3"),  # 可偵測卻沒偵測到 → undetected
             flip("released", 30000, "A", "74", "2026-12-02", "1:3"),  # 在該組最後一次開始抓取之後 → afterLastScan
             flip("released", 99999, "A", "74", "2026-12-02", "1:3"),  # window 之後 → afterLastScan
+            flip("released", 2000, "H", "83", "2026-12-03", "1:1"),  # 該組這一輪完全沒開始抓 → comboNotScanned
         ]
         released = [
             {"license_type": "3", "dmv_no": "63", "exam_date": "2026-12-01", "sec_key": "2:25", "at": 4000},
@@ -237,13 +238,13 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(last, {("3", "63"): 8500.0, ("A", "74"): 20000.0})
         r = analysis.detection_latency(flips, released, window_end_ms=50000, last_scan_start_ms=last)
         self.assertEqual(
-            {k: r[k] for k in ("flips", "detectable", "detected", "undetected", "reverted", "afterLastScan")},
-            {"flips": 5, "detectable": 2, "detected": 1, "undetected": 1, "reverted": 1, "afterLastScan": 2},
+            {k: r[k] for k in ("flips", "detectable", "detected", "undetected", "reverted", "afterLastScan", "comboNotScanned")},
+            {"flips": 6, "detectable": 2, "detected": 1, "undetected": 1, "reverted": 1, "afterLastScan": 2, "comboNotScanned": 1},
         )
         self.assertEqual(r["p50Ms"], 3000.0)
         # 沒給 last_scan_start_ms 時只用 window 判斷（30000 的釋位改算 undetected）
         r2 = analysis.detection_latency(flips, released, window_end_ms=50000)
-        self.assertEqual((r2["undetected"], r2["afterLastScan"]), (2, 1))
+        self.assertEqual((r2["undetected"], r2["afterLastScan"], r2["comboNotScanned"]), (3, 1, 0))
 
 
 class TestReplayDb(unittest.TestCase):
@@ -288,7 +289,8 @@ class TestReplayDb(unittest.TestCase):
         fake = mock.MagicMock()
         with mock.patch.object(db, "connect", return_value=fake), redirect_stdout(io.StringIO()):
             self.assertTrue(db.reset_replay_db({}, dry_run=False))
-        fake.cursor.return_value.__enter__.return_value.execute.assert_called_once_with(db.TRUNCATE_REPLAY_SQL)
+        calls = [c.args[0] for c in fake.cursor.return_value.__enter__.return_value.execute.call_args_list]
+        self.assertEqual(calls, [db.LOCK_TIMEOUT_SQL, db.TRUNCATE_REPLAY_SQL, "RESET lock_timeout"])
         fake.close.assert_called_once()
 
     def test_db_secret_fetched_once(self):
@@ -302,6 +304,86 @@ class TestReplayDb(unittest.TestCase):
                 self.assertEqual(db._db_secret("arn:x")["username"], "u")
         self.assertEqual(sm.get_secret_value.call_count, 1)
         db._SECRET_CACHE.clear()
+
+
+class TestE2Main(TmpResults):
+    """用 mock 驅動 fault_inject.main()：結束碼與還原行為。"""
+
+    def run_e2(self, restore_fails=False, reset_delay_fails=False):
+        from e2_ha import fault_inject as fi
+        from common import replay_admin
+
+        groups = {"w": "sa,sb", "api": "sa2,sb2"}
+        azs = {"sa": "us-east-1a", "sb": "us-east-1b", "sa2": "us-east-1a", "sb2": "us-east-1b"}
+        asg = mock.Mock()
+        asg.describe_auto_scaling_groups.side_effect = lambda AutoScalingGroupNames: {  # noqa: N803
+            "AutoScalingGroups": [{"VPCZoneIdentifier": groups[AutoScalingGroupNames[0]]}]
+        }
+        restores = {"n": 0}
+
+        def update(AutoScalingGroupName, VPCZoneIdentifier):  # noqa: N803
+            if restore_fails and "," in VPCZoneIdentifier and AutoScalingGroupName == "w":
+                restores["n"] += 1
+                raise RuntimeError("ExpiredToken")
+            groups[AutoScalingGroupName] = VPCZoneIdentifier
+
+        asg.update_auto_scaling_group.side_effect = update
+        ec2 = mock.Mock()
+        ec2.describe_subnets.side_effect = lambda SubnetIds: {  # noqa: N803
+            "Subnets": [{"SubnetId": x, "AvailabilityZone": azs[x]} for x in SubnetIds]
+        }
+        clients = {"autoscaling": asg, "ec2": ec2, "rds": mock.Mock(), "sqs": mock.Mock()}
+        combos = tasks.load_combos()
+        rows = [
+            {"license_type": c["licenseType"], "dmv_no": c["dmvNo"], "enqueued_at": 1, "started_at": 2, "committed_at": 3,
+             "finished_at": 4, "outcome": "ok", "receive_count": 1, "az": "us-east-1b", "worker_id": "i-1"}
+            for c in combos
+        ]
+        resets = []
+
+        def fake_reset(url, **kw):
+            resets.append(kw)
+            if reset_delay_fails and kw.get("delayMs") == 5000:
+                raise RuntimeError("replay 掛了")
+            return {}
+
+        argv = ["--confirm", "--no-rds", "--block-az", "--post-seconds", "0", "--fault-after", "0",
+                "--queue-url", "q", "--worker-asg", "w", "--api-asg", "api", "--api-url", "http://api", "--replay-url", "http://10.0.0.1:8080"]
+        with mock.patch("common.awsclients.client", side_effect=lambda n: clients[n]), \
+                mock.patch.object(fi, "instances_in_az", return_value={"w": ["i-a"], "api": []}), \
+                mock.patch.object(fi, "reset_replay_db"), \
+                mock.patch.object(fi, "send_tasks", return_value={"sent": 360}), \
+                mock.patch.object(fi, "Probe") as probe, \
+                mock.patch.object(replay_admin, "stats", return_value={"delayMs": 500}), \
+                mock.patch.object(replay_admin, "reset", side_effect=fake_reset), \
+                mock.patch("common.db.connect"), \
+                mock.patch("common.db.wait_run_finished", return_value=True), \
+                mock.patch("common.db.fetch_run_rows", return_value=rows), \
+                mock.patch("time.sleep"), redirect_stdout(io.StringIO()) as out:
+            probe.return_value.samples = []
+            probe.return_value.errors = []
+            try:
+                rc = fi.main(argv)
+            except RuntimeError as e:
+                rc = e
+        return rc, groups, resets, out.getvalue()
+
+    def test_exit_0_when_all_restored(self):
+        rc, groups, resets, _ = self.run_e2()
+        self.assertEqual(rc, 0)
+        self.assertEqual(groups, {"w": "sa,sb", "api": "sa2,sb2"})
+        self.assertEqual([r["delayMs"] for r in resets], [5000, 500])
+
+    def test_exit_3_when_subnet_restore_fails(self):
+        rc, groups, _, out = self.run_e2(restore_fails=True)
+        self.assertEqual(rc, 3)
+        self.assertEqual(groups["api"], "sa2,sb2")
+        self.assertIn("手動還原", out)
+
+    def test_delay_restored_even_if_raising_delay_fails(self):
+        rc, _, resets, _ = self.run_e2(reset_delay_fails=True)
+        self.assertIsInstance(rc, RuntimeError)
+        self.assertEqual([r["delayMs"] for r in resets], [5000, 500])
 
 
 class TestBlockAz(unittest.TestCase):
@@ -461,7 +543,13 @@ class TestDryRuns(TmpResults):
         rc, out = self.run_main("e1_scalability.enqueue_burst", ["--dry-run"])
         self.assertEqual(rc, 0)
         self.assertIn("3600 則 target=replay", out)
+        self.assertNotIn("TRUNCATE", out)  # E1 預設不清 replay schema
         self.assert_result("e1")
+
+    def test_e1_truncate_is_opt_in(self):
+        rc, out = self.run_main("e1_scalability.enqueue_burst", ["--dry-run", "--truncate-replay-db"])
+        self.assertEqual(rc, 0)
+        self.assertIn("TRUNCATE replay.slot", out)
 
     def test_e1_monitor(self):
         rc, out = self.run_main("e1_scalability.monitor_asg", ["--dry-run"])

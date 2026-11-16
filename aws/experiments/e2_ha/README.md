@@ -55,7 +55,7 @@ python e2_ha/fault_inject.py --tf-outputs outputs.json --az us-east-1a --confirm
   還原時每個 ASG 各自處理，其中一個失敗（例如憑證過期）仍會繼續還原另一個與 Replay 延遲，
   並印出手動還原用的 `aws autoscaling update-auto-scaling-group … --vpc-zone-identifier "…"` 指令，結果檔記在 `subnetRestoreFailed`。
 - `--no-rds`：只測 instance 故障。
-- 回傳碼：漏掃組數為 0 回 0，否則回 2。
+- 回傳碼：0 = 漏掃組數為 0 且 subnet 都已還原；2 = 有漏掃；3 = 有 ASG 的 subnet 沒還原成功（要照畫面上的指令手動還原，優先於 2）。
 
 ## 預期觀察
 

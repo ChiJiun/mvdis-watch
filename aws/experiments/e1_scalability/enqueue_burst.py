@@ -38,7 +38,11 @@ def main(argv=None) -> int:
     p.add_argument("--watch", action="store_true", help="送完後監看到佇列清空並讀 scan_task_log")
     p.add_argument("--interval", type=float, default=15)
     p.add_argument("--timeout", type=float, default=3600, help="監看上限秒數")
-    p.add_argument("--keep-replay-db", action="store_true", help="不要在送任務前清空 replay schema（有設定 DB 時預設會清）")
+    p.add_argument(
+        "--truncate-replay-db",
+        action="store_true",
+        help="送任務前清空 replay schema（E1 不讀 replay 表，預設不清，避免清掉同時在跑的 E3 資料）",
+    )
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args(argv)
 
@@ -50,7 +54,8 @@ def main(argv=None) -> int:
 
     has_db = bool(cfg["db_host"] or os.environ.get("DATABASE_URL"))
     if a.dry_run:
-        reset_replay_db(cfg, dry_run=True, skip=a.keep_replay_db)
+        if a.truncate_replay_db:
+            reset_replay_db(cfg, dry_run=True)
         send = send_tasks(cfg["queue_url"] or "", tasks, dry_run=True)
         write_result("e1", f"dry-run-{run_id}", {"dryRun": True, "runId": run_id, "send": send})
         return 0
@@ -65,11 +70,12 @@ def main(argv=None) -> int:
     if before["visible"] or before["inFlight"]:
         print(f"注意：佇列裡原本就有 {before} 則訊息，清空時間會被拉長")
 
-    # E1 只讀 scan_task_log，不讀 replay 表；有 DB 設定時順便清空，讓每次實驗都從同樣的 replay 狀態開始
-    if has_db:
-        reset_replay_db(cfg, dry_run=False, skip=a.keep_replay_db)
-    else:
-        print("未設定資料庫，略過清空 replay schema（不影響 E1 的佇列量測）")
+    # E1 只讀 scan_task_log，不讀 replay 表，所以預設不清；明確要求時才清
+    if a.truncate_replay_db:
+        if not has_db:
+            raise SystemExit("--truncate-replay-db 需要資料庫設定（DATABASE_URL，或 DB_HOST＋DB_SECRET_ARN）")
+        print("注意：即將清空 replay schema，若同時有 E2／E3 在跑，它們的 replay 資料會被清掉")
+        reset_replay_db(cfg, dry_run=False)
 
     t0 = time.time()
     send = send_tasks(cfg["queue_url"], tasks, dry_run=False, concurrency=a.concurrency, sqs_client=sqs)

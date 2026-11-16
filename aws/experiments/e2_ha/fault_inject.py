@@ -245,12 +245,13 @@ def main(argv=None) -> int:
 
     reset_replay_db(cfg, dry_run=False, skip=a.keep_replay_db)
     replay_before = replay_admin.stats(cfg["replay_url"])
-    replay_admin.reset(cfg["replay_url"], delayMs=a.replay_delay_ms)
     original_subnets: Dict[str, str] = {}
     api_probe = Probe("api", api_check(cfg["api_url"]))
     db_probe = Probe("db", db_check(cfg))
     result: Dict[str, Any] = {"dryRun": False, "runId": run_id, "az": a.az, "targets": targets, "plan": plan}
     try:
+        # 調高延遲放在 try 裡：之後任何一步中斷，finally 都會把延遲還原
+        replay_admin.reset(cfg["replay_url"], delayMs=a.replay_delay_ms)
         api_probe.start()
         db_probe.start()
         t_enqueue = time.time()
@@ -325,6 +326,9 @@ def main(argv=None) -> int:
         f"管線最長停擺 {result['pipelineMaxGapSeconds']:.0f}s"
     )
     write_result("e2", run_id, result)
+    if result.get("subnetRestoreFailed"):
+        print(f"!! 這些 ASG 的 subnet 沒有還原：{result['subnetRestoreFailed']}，請照上面的指令手動還原")
+        return 3
     return 0 if summary["missingCombos"] == 0 else 2
 
 

@@ -50,7 +50,8 @@ python e1_scalability/enqueue_burst.py --tf-outputs outputs.json --count 3600 --
 ```
 
 `--watch` 會每 15 秒記錄 visible／inFlight 與 worker ASG 台數，直到佇列清空，再從 `public.scan_task_log`（`target='replay'`）讀這個 runId 的完成情況。
-有設定資料庫時，送任務前會先清空 replay schema（`--keep-replay-db` 可略過）；E1 只讀 `scan_task_log`，沒設定資料庫也能跑佇列量測。
+E1 只讀 `scan_task_log`、不讀 replay 表，預設不清空 replay schema；需要時加 `--truncate-replay-db`。沒設定資料庫也能跑佇列量測（不加 `--watch` 時）。
+`--watch` 讀資料庫，執行的主機要連得到 RDS（見上層 README「執行環境」）。
 
 **量測**
 

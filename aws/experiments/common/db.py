@@ -1,7 +1,9 @@
 """讀 RDS 的 scan_task_log 與 replay schema（psycopg 3，延遲 import）。
 
 連線優先序和 worker 相同（契約第 3 節）：DATABASE_URL > DB_HOST + DB_SECRET_ARN。
-RDS 在 private subnet，這些函式要在 bastion（或 VPC 內其他主機）上執行。
+RDS 在 private subnet：執行這些函式的主機必須連得到 `rds_endpoint:5432`。
+預定的實驗主機是 bastion，但 main 目前的 infra 只讓 API-SG、Worker-SG 連 RDS（`rds_from_app`），
+要等 infra 後續 PR 新增 `rds_from_bastion`（以及 Replay 用的 `replay_from_bastion`）規則才行；詳見 aws/experiments/README.md「執行環境」。
 
 資料隔離（契約 §7.3）：replay 任務的 slot／slot_event／scan_log 在 `replay` schema；
 實驗只讀寫 `replay.*`，任務量測讀 `public.scan_task_log WHERE target = 'replay'`。
@@ -32,6 +34,8 @@ SELECT count(*) FROM public.scan_task_log WHERE run_id = %s AND target = 'replay
 # 實驗前清空 replay schema 的三張表（契約 §7.3，擁有者為 replay 線）。只動 replay schema，絕不碰 public。
 REPLAY_TABLES = ("replay.slot", "replay.slot_event", "replay.scan_log")
 TRUNCATE_REPLAY_SQL = f"TRUNCATE {', '.join(REPLAY_TABLES)} RESTART IDENTITY"
+
+LOCK_TIMEOUT_SQL = "SET lock_timeout = '30s'"
 
 ALL_SQL = (RUN_ROWS_SQL, RELEASED_SQL, FINISHED_COUNT_SQL, TRUNCATE_REPLAY_SQL)
 
@@ -85,9 +89,16 @@ def fetch_released(conn: Any, run_id: str) -> List[Dict[str, Any]]:
 
 
 def truncate_replay_tables(conn: Any) -> None:
-    """清空 replay.slot／replay.slot_event／replay.scan_log（只有 replay schema）。"""
+    """清空 replay.slot／replay.slot_event／replay.scan_log（只有 replay schema）。
+
+    TRUNCATE 要拿 ACCESS EXCLUSIVE 鎖；worker 若還有交易握著 replay 表，設 lock_timeout 讓它報錯而不是無限等待。
+    """
     with conn.cursor() as cur:
-        cur.execute(TRUNCATE_REPLAY_SQL)
+        cur.execute(LOCK_TIMEOUT_SQL)
+        try:
+            cur.execute(TRUNCATE_REPLAY_SQL)
+        finally:
+            cur.execute("RESET lock_timeout")
 
 
 def reset_replay_db(cfg: Dict[str, Optional[str]], *, dry_run: bool, skip: bool = False, log: Callable[[str], None] = print) -> bool:
