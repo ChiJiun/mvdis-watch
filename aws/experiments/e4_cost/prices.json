@@ -1,0 +1,66 @@
+{
+  "_note": "us-east-1、Linux、隨需價格，不含免費方案額度。數字取自撰寫時已知的公開牌價，尚未對照當期 AWS Pricing Calculator／Cloudflare 價目表校正；報告引用前請逐項核對並更新 asOf。",
+  "asOf": "未校正（2026-11 撰寫）",
+  "hoursPerMonth": 730,
+  "ec2": {
+    "t3.micro": 0.0104,
+    "t3.small": 0.0208,
+    "t3.medium": 0.0416,
+    "ebsGp3PerGbMonth": 0.08,
+    "ebsGbPerInstance": 8
+  },
+  "lambda": {
+    "perGbSecond": 1.66667e-05,
+    "perMillionRequests": 0.2
+  },
+  "sqs": {
+    "perMillionRequests": 0.4
+  },
+  "natGateway": {
+    "perHour": 0.045,
+    "perGbProcessed": 0.045
+  },
+  "rds": {
+    "db.t3.micro.multiAz": 0.036,
+    "db.t3.micro.singleAz": 0.018,
+    "gp2PerGbMonthMultiAz": 0.23
+  },
+  "alb": {
+    "perHour": 0.0225,
+    "perLcuHour": 0.008
+  },
+  "s3": {
+    "perGbMonth": 0.023,
+    "perThousandPut": 0.005
+  },
+  "cloudflare": {
+    "free": {
+      "monthly": 0,
+      "requestsPerDay": 100000,
+      "cpuMsPerInvocation": 10,
+      "subrequestsPerInvocation": 50
+    },
+    "paid": {
+      "monthly": 5,
+      "includedRequestsPerMonth": 10000000,
+      "includedCpuMsPerMonth": 30000000,
+      "perMillionRequests": 0.3,
+      "perMillionCpuMs": 0.02,
+      "subrequestsPerInvocation": 1000
+    }
+  },
+  "publicIpv4": {
+    "perHour": 0.005
+  },
+  "cloudwatchLogs": {
+    "perGbIngested": 0.5,
+    "perGbMonthStored": 0.03
+  },
+  "secretsManager": {
+    "perSecretMonth": 0.4
+  },
+  "cloudfront": {
+    "perTenThousandHttpsRequests": 0.01,
+    "perGbTransferOut": 0.085
+  }
+}

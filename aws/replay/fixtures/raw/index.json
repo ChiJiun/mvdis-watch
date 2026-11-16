@@ -1,0 +1,110 @@
+{
+  "available": {
+    "name": "available",
+    "licenseType": "3",
+    "lv1": "60",
+    "dmvNo": "63",
+    "note": "豐原站普通重型機車（原型實測常有位）",
+    "file": "available.html",
+    "form": {
+      "method": "query",
+      "licenseTypeCode": "3",
+      "expectExamDateStr": "1151116",
+      "_onlyWeekend": "on",
+      "dmvNoLv1": "60",
+      "dmvNo": "63",
+      "secDateStr": "",
+      "secId": "",
+      "divId": ""
+    },
+    "capturedAt": "2026-11-15T17:33:13.322Z",
+    "httpStatus": 200,
+    "bytes": 81314,
+    "parsed": {
+      "rows": 38,
+      "available": 12,
+      "full": 26
+    }
+  },
+  "full": {
+    "name": "full",
+    "licenseType": "3",
+    "lv1": "40",
+    "dmvNo": "41",
+    "note": "板橋站普通重型機車（原型實測常全額滿）",
+    "file": "full.html",
+    "form": {
+      "method": "query",
+      "licenseTypeCode": "3",
+      "expectExamDateStr": "1151116",
+      "_onlyWeekend": "on",
+      "dmvNoLv1": "40",
+      "dmvNo": "41",
+      "secDateStr": "",
+      "secId": "",
+      "divId": ""
+    },
+    "capturedAt": "2026-11-15T17:33:18.394Z",
+    "httpStatus": 200,
+    "bytes": 71804,
+    "parsed": {
+      "rows": 22,
+      "available": 0,
+      "full": 22
+    }
+  },
+  "empty": {
+    "name": "empty",
+    "licenseType": "H",
+    "lv1": "80",
+    "dmvNo": "83",
+    "note": "恆春分站職業聯結車（預期無場次）",
+    "file": "empty.html",
+    "form": {
+      "method": "query",
+      "licenseTypeCode": "H",
+      "expectExamDateStr": "1151116",
+      "_onlyWeekend": "on",
+      "dmvNoLv1": "80",
+      "dmvNo": "83",
+      "secDateStr": "",
+      "secId": "",
+      "divId": ""
+    },
+    "capturedAt": "2026-11-15T17:33:23.544Z",
+    "httpStatus": 200,
+    "bytes": 60834,
+    "parsed": {
+      "rows": 0,
+      "available": 0,
+      "full": 0
+    }
+  },
+  "car": {
+    "name": "car",
+    "licenseType": "A",
+    "lv1": "70",
+    "dmvNo": "74",
+    "note": "臺南站普通小型車（汽車照類的列格式）",
+    "file": "car.html",
+    "form": {
+      "method": "query",
+      "licenseTypeCode": "A",
+      "expectExamDateStr": "1151116",
+      "_onlyWeekend": "on",
+      "dmvNoLv1": "70",
+      "dmvNo": "74",
+      "secDateStr": "",
+      "secId": "",
+      "divId": ""
+    },
+    "capturedAt": "2026-11-15T17:33:28.550Z",
+    "httpStatus": 200,
+    "bytes": 70829,
+    "parsed": {
+      "rows": 22,
+      "available": 0,
+      "full": 22
+    }
+  }
+}
