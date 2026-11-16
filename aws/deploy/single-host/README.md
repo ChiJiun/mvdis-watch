@@ -11,7 +11,7 @@ AWS 上的正式部署仍然用 [`aws/infra/`](../../infra/) 的 Terraform，這
 | EventBridge（每分鐘／每日） | `scheduler` 容器：每分鐘呼叫 dispatcher（佇列有積壓時跳過），台灣時間 04:00 呼叫 janitor，04:10 清 `raw/` 與 `events/` |
 | worker／api／replay ASG | 各一個容器，共用同一個映像 `mvdis-aws` |
 | notifier Lambda（Discord） | **沒有接**。live 的 `released` 事件會照 filter policy 進 LocalStack 的 `mvdis-notify-local` 佇列 |
-| CloudFront＋ALB | 沒有。api 只綁 `127.0.0.1:${API_PORT}`，用 SSH tunnel 看 |
+| CloudFront＋ALB | 沒有。api 只綁 `127.0.0.1:${API_PORT}`，用 SSH tunnel 看；要公開可用選用的 Cloudflare Tunnel（見「公開儀表板」） |
 
 和 AWS 版的差異只在部署層；程式碼完全相同（同一份 `dispatcher`、`janitor` handler、`worker.mjs`、`api.mjs`、`replay.mjs`）。
 
@@ -141,28 +141,49 @@ $CF tunnel create mvdis-watch                 # 印出 tunnel id，並寫入 <tu
 $CF tunnel route dns mvdis-watch <hostname>   # 建立指向這個 Tunnel 的 CNAME
 ```
 
-接著寫 `/opt/mvdis-cloudflared/config.yml`（`<tunnel id>` 換成上面印出的 id）：
+`cert.pem` 可以管理這個網域底下所有的 Tunnel 和 DNS，執行 Tunnel 用不到它。建好之後把它移出會掛進容器的資料夾，
+之後要 `route dns`、刪除 Tunnel 時再搬回來（或重新 `tunnel login`）：
 
-```yaml
+```bash
+sudo mkdir -p /opt/mvdis-cloudflared-admin && sudo chmod 700 /opt/mvdis-cloudflared-admin
+sudo mv /opt/mvdis-cloudflared/cert.pem /opt/mvdis-cloudflared-admin/
+```
+
+接著寫 `/opt/mvdis-cloudflared/config.yml`（資料夾只有 uid 65532 能寫，所以用 `sudo tee`；`<tunnel id>` 換成上面印出的 id）：
+
+```bash
+sudo tee /opt/mvdis-cloudflared/config.yml >/dev/null <<'EOF'
 tunnel: <tunnel id>
 credentials-file: /home/nonroot/.cloudflared/<tunnel id>.json
 ingress:
   - hostname: <hostname>
     service: http://api:8080
   - service: http_status:404
+EOF
+sudo chown 65532:65532 /opt/mvdis-cloudflared/config.yml
 ```
 
+啟用（在 `single-host` 資料夾執行）：
+
 ```bash
-sudo chown 65532:65532 /opt/mvdis-cloudflared/config.yml
-# 在 .env 加上 COMPOSE_PROFILES=tunnel（之後一般的 docker compose up -d／down 都會包含它）
+# 在 .env 加上 COMPOSE_PROFILES=tunnel：之後一般的 docker compose up -d／down 都會包含 tunnel
 echo 'COMPOSE_PROFILES=tunnel' >> .env
 docker compose up -d tunnel
 docker compose logs tunnel | grep Registered   # 應該有 4 條 Registered tunnel connection
 ```
 
-- `cert.pem` 可以管理這個網域底下的 Tunnel 和 DNS，`<tunnel id>.json` 可以冒用這條 Tunnel，兩個都不要外流，也不要進 repo。
+如果之前用 `docker run` 手動起過同一條 Tunnel 的 connector，啟用後要 `docker rm -f` 掉它，不然同一條 Tunnel 會有兩個 connector。
+
+- `cert.pem` 與 `<tunnel id>.json`（可以冒用這條 Tunnel）都不要外流，也不要進 repo。
 - 公開之後任何人都能看儀表板、呼叫 `/api/*`。API 是唯讀的，但沒有限速；負載在這台主機的 api 和 Postgres 上。要限制誰能看，請在 Cloudflare Zero Trust 為這個網址加一個 Access 應用程式。
-- 停用：`docker compose stop tunnel`，並把 `.env` 的 `COMPOSE_PROFILES=tunnel` 拿掉。
+- `COMPOSE_PROFILES` 要寫在 `.env`，不要只在某次指令前面臨時設定。沒有啟用 profile 的 `docker compose down` 不會處理 tunnel 容器：
+  tunnel 在跑時它會留著 tunnel 和網路；tunnel 已經停掉時會刪掉網路、留下容器，之後重新啟用就會因為找不到網路而起不來。
+- 停用：先刪掉容器，再把 `.env` 的 `COMPOSE_PROFILES=tunnel` 拿掉。順序不能反過來，理由見上一點。
+
+  ```bash
+  docker compose rm -sf tunnel   # 停止並刪除容器（指名服務時不需要啟用 profile）
+  sed -i '/^COMPOSE_PROFILES=tunnel$/d' .env
+  ```
 
 ## 只用 Replay 模擬站驗證（不打官網）
 

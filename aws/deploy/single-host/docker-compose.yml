@@ -140,8 +140,13 @@ services:
     restart: unless-stopped
     command: ["tunnel", "--no-autoupdate", "--config", "/home/nonroot/.cloudflared/config.yml", "run"]
     volumes:
-      # config.yml 與 Tunnel 憑證（<tunnel id>.json）放在主機上，不進 repo
-      - ${CLOUDFLARED_DIR:-/opt/mvdis-cloudflared}:/home/nonroot/.cloudflared:ro
+      # config.yml 與 Tunnel 憑證（<tunnel id>.json）放在主機上，不進 repo。
+      # 資料夾不存在時直接報錯，不讓 Docker 自動建一個空資料夾、害 cloudflared 一直重啟。
+      - type: bind
+        source: ${CLOUDFLARED_DIR:-/opt/mvdis-cloudflared}
+        target: /home/nonroot/.cloudflared
+        read_only: true
+        bind: { create_host_path: false }
     depends_on:
       api: { condition: service_started }
     mem_limit: 128m
