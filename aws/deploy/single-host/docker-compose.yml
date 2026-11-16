@@ -1,0 +1,123 @@
+# 單機部署（例如 Oracle Cloud A1 免費 VM）：把 AWS 版整套跑在一台主機上。
+#   RDS        → postgres（資料放 named volume）
+#   SQS/SNS/S3 → LocalStack（不保存狀態，重啟後由 init 腳本重建資源；raw/ 由 scheduler 定期清）
+#   EventBridge → scheduler（每分鐘呼叫 dispatcher、每天呼叫 janitor）
+#   EC2 ASG    → worker、api、replay 各一個容器
+# notifier（Discord）沒有接上：SNS 的 live 事件會進 mvdis-notify-local 佇列，見 README。
+#
+# 對外只開放 api，而且只綁 127.0.0.1（用 SSH tunnel 看），其他服務只在 compose 的內部網路。
+# 用法見同目錄的 README.md。
+
+x-common: &common
+  image: mvdis-aws:latest
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-aws-env: &aws-env
+  AWS_REGION: us-east-1
+  AWS_ENDPOINT_URL: http://localstack:4566
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  DATABASE_URL: postgres://mvdis:${POSTGRES_PASSWORD:?請在 .env 設定 POSTGRES_PASSWORD}@postgres:5432/mvdis
+  SCAN_QUEUE_URL: http://localstack:4566/000000000000/mvdis-scan
+  EVENT_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:mvdis-events
+  RAW_BUCKET: mvdis-raw-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mvdis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?請在 .env 設定 POSTGRES_PASSWORD}
+      POSTGRES_DB: mvdis
+      TZ: UTC
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 只在 volume 第一次建立時套用；之後改 schema 要另外跑 migration（見 README）
+      - ../../db/schema.pg.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mvdis -d mvdis"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  localstack:
+    image: localstack/localstack:3.8
+    restart: unless-stopped
+    environment:
+      SERVICES: sqs,sns,s3,secretsmanager
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - ../../localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      # init 腳本最後才建 bucket，查得到就代表資源都建好了
+      test: ["CMD-SHELL", "awslocal s3api head-bucket --bucket mvdis-raw-local >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+    mem_limit: 1536m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  replay:
+    <<: *common
+    command: ["node", "replay.mjs"]
+    environment:
+      PORT: "8080"
+    mem_limit: 256m
+
+  worker:
+    <<: *common
+    command: ["node", "worker.mjs"]
+    environment:
+      <<: *aws-env
+      MVDIS_LIVE_URL: https://www.mvdis.gov.tw
+      REPLAY_BASE_URL: http://replay:8080
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+      WORKER_ID: ${WORKER_ID:-single-host}
+      WORKER_AZ: ${WORKER_AZ:-single-host}
+    depends_on:
+      postgres: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+      replay: { condition: service_started }
+    mem_limit: 512m
+
+  scheduler:
+    <<: *common
+    command: ["node", "scheduler.mjs"]
+    environment:
+      <<: *aws-env
+      HOT_PER_TICK: ${HOT_PER_TICK:-11}
+      COLD_PER_TICK: ${COLD_PER_TICK:-3}
+      DISPATCH_ENABLED: ${DISPATCH_ENABLED:-1}
+      RAW_RETENTION_DAYS: ${RAW_RETENTION_DAYS:-3}
+    depends_on:
+      postgres: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+      worker: { condition: service_started }
+    mem_limit: 256m
+
+  api:
+    <<: *common
+    command: ["node", "api.mjs"]
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgres://mvdis:${POSTGRES_PASSWORD:?請在 .env 設定 POSTGRES_PASSWORD}@postgres:5432/mvdis
+      DB_SSL: disable
+      DB_POOL_MAX: "5"
+    ports:
+      - "127.0.0.1:${API_PORT:-8200}:8080"
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 512m
+
+volumes:
+  pgdata:
