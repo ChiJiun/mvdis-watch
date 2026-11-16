@@ -1,0 +1,94 @@
+#!/bin/bash
+# mvdis-watch ${name}：由 Terraform 產生的開機腳本（Amazon Linux 2023）。
+# release md5: ${release_hash}
+#   ↑ 產物內容改變時這行會變，launch template 出新版本，ASG 依 instance_refresh 滾動替換。
+set -euxo pipefail
+
+# --- 1. 套件：Node.js 22 與 CloudWatch agent（dnf 偶爾失敗，重試幾次） ---
+for i in 1 2 3 4 5; do
+  dnf install -y nodejs22 amazon-cloudwatch-agent && break
+  sleep 10
+done
+NODE_BIN="$(command -v node-22 || command -v node)"
+test -x "$NODE_BIN"
+
+# --- 2. 執行身分與目錄 ---
+id -u mvdis >/dev/null 2>&1 || useradd --system --home-dir /opt/mvdis --shell /sbin/nologin mvdis
+install -d -o mvdis -g mvdis -m 0755 /opt/mvdis
+install -d -o mvdis -g mvdis -m 0755 /var/log/mvdis
+install -d -m 0755 /etc/mvdis
+
+# --- 3. 環境變數（契約第 3 節） ---
+cat > /etc/mvdis/${name}.env <<'ENVEOF'
+%{ for k, v in env ~}
+${k}=${v}
+%{ endfor ~}
+ENVEOF
+chown root:mvdis /etc/mvdis/${name}.env
+chmod 0640 /etc/mvdis/${name}.env
+
+# --- 4. systemd：每次啟動前從 S3 抓最新 release，掛掉 10 秒後自動重啟 ---
+#     產物還沒上傳時 ExecStartPre 會失敗，systemd 會一直重試直到檔案出現。
+cat > /etc/systemd/system/mvdis-${name}.service <<UNITEOF
+[Unit]
+Description=mvdis-watch ${name}
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=mvdis
+Group=mvdis
+WorkingDirectory=/opt/mvdis
+EnvironmentFile=/etc/mvdis/${name}.env
+ExecStartPre=/usr/bin/aws s3 cp --only-show-errors --region ${region} s3://${artifact_bucket}/releases/${name}.mjs /opt/mvdis/${name}.mjs
+ExecStart=$NODE_BIN /opt/mvdis/${name}.mjs
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/mvdis/${name}.log
+StandardError=append:/var/log/mvdis/${name}.log
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+cat > /etc/logrotate.d/mvdis <<'ROTEOF'
+/var/log/mvdis/*.log {
+  daily
+  rotate 3
+  missingok
+  notifempty
+  compress
+  copytruncate
+}
+ROTEOF
+
+# --- 5. CloudWatch agent：把 stdout/stderr 送到 log group ${log_group}。
+#     worker 的 Embedded Metric Format（契約第 9 節）寫在 stdout，跟著 log 一起送；
+#     另外開 EMF 端點（tcp/udp 25888），給用 aws-embedded-metrics 函式庫的寫法。
+cat > /opt/aws/amazon-cloudwatch-agent/etc/mvdis.json <<'CWEOF'
+{
+  "agent": { "run_as_user": "root" },
+  "logs": {
+    "metrics_collected": { "emf": {} },
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/mvdis/${name}.log",
+            "log_group_name": "${log_group}",
+            "log_stream_name": "{instance_id}"
+          }
+        ]
+      }
+    }
+  }
+}
+CWEOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/mvdis.json
+
+systemctl daemon-reload
+systemctl enable --now mvdis-${name}.service
