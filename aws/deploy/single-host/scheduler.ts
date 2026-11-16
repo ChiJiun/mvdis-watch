@@ -70,11 +70,12 @@ export async function queueBacklog(sqs: SQSClient, queueUrl: string): Promise<nu
   const a = res.Attributes ?? {};
   let total = 0;
   for (const k of BACKLOG_ATTRS) {
-    const n = Number(a[k]);
-    if (a[k] === undefined || !Number.isInteger(n) || n < 0) {
-      throw new Error(`佇列屬性 ${k} 無法解析：${JSON.stringify(a[k] ?? null)}`);
+    const v = a[k];
+    // 只接受純數字字串；空字串、缺屬性都當成無法確認（Number('') 會是 0，不能直接用）
+    if (v === undefined || !/^\d+$/.test(v)) {
+      throw new Error(`佇列屬性 ${k} 無法解析：${JSON.stringify(v ?? null)}`);
     }
-    total += n;
+    total += Number(v);
   }
   return total;
 }
@@ -130,12 +131,15 @@ function withTimeout<T>(p: Promise<T>, ms: number, name: string): Promise<T> {
   return Promise.race([p, t]).finally(() => clearTimeout(timer));
 }
 
-async function safe(name: string, fn: () => Promise<unknown>, timeoutMs: number) {
+/** 執行一個步驟並記 log；回傳是否成功完成（例外、逾時都算失敗） */
+async function safe(name: string, fn: () => Promise<unknown>, timeoutMs: number): Promise<boolean> {
   try {
     const r = await withTimeout(fn(), timeoutMs, name);
     log('info', `${name} ok`, { result: r });
+    return true;
   } catch (e) {
     log('error', `${name} failed`, { error: errMsg(e) });
+    return false;
   }
 }
 
@@ -154,7 +158,7 @@ export type SchedulerDeps = {
  * 一個 tick 的狀態機。`now` 可以早於或晚於整分鐘幾毫秒（libuv timer 和 Date.now() 有落差），
  * 所以用四捨五入取「這一輪是哪一分鐘」，同一分鐘只派送一次。
  * 派送前先確認掃描佇列是空的，而且上一個 tick 看到的也是空的；有積壓、查不到（fail-closed）、
- * 或剛從積壓恢復（冷卻一個 tick）都跳過。
+ * 剛從積壓恢復，或上一個 tick 的派送失敗／逾時（冷卻一個 tick）都跳過。
  * janitor／prune 用「台灣時間過了 04:00／04:10、而且今天還沒跑過」，scheduler 剛好在那一分鐘停著也會補跑。
  */
 export function createScheduler(deps: SchedulerDeps) {
@@ -179,15 +183,18 @@ export function createScheduler(deps: SchedulerDeps) {
         log('error', 'dispatch skipped: backlog unknown', { error: errMsg(e) });
       }
       const empty = backlog === 0;
+      let settled = true;
       if (empty && prevEmpty) {
         dispatched = true;
-        await safe('dispatch', () => deps.dispatchAt(slotMs), timeoutMs);
+        // 派送失敗或逾時時，底層請求可能還在跑、稍後才把部分訊息送進佇列；
+        // 下一個 tick 看到的「空佇列」就不可信，所以強制冷卻一輪，避免晚到的訊息和下一批疊在一起
+        settled = await safe('dispatch', () => deps.dispatchAt(slotMs), timeoutMs);
       } else if (empty) {
-        log('info', 'dispatch skipped: cooldown', { reason: '上一個 tick 佇列不是空的或無法確認' });
+        log('info', 'dispatch skipped: cooldown', { reason: '上一個 tick 佇列不是空的、無法確認，或派送沒有成功完成' });
       } else if (backlog !== undefined) {
         log('info', 'dispatch skipped: backlog', { backlog });
       }
-      prevEmpty = empty;
+      prevEmpty = empty && settled;
     }
 
     const today = taipeiIsoDate(slotMs);
@@ -209,8 +216,9 @@ function main() {
   const rawRetentionDays = intEnv('RAW_RETENTION_DAYS', 3);
   const region = env.AWS_REGION || 'us-east-1';
   const endpoint = env.AWS_ENDPOINT_URL || undefined;
-  // AWS SDK v3 預設沒有請求逾時；LocalStack 卡住時要讓請求失敗，而不是讓 scheduler 靜靜停住
-  const requestHandler = { requestTimeout: 10_000, connectionTimeout: 3_000 };
+  // AWS SDK v3 預設沒有請求逾時；LocalStack 卡住時要讓請求失敗，而不是讓 scheduler 靜靜停住。
+  // requestTimeout 預設只會記警告，要加 throwOnRequestTimeout 才會真的中止請求（SDK 會再重試）。
+  const requestHandler = { requestTimeout: 10_000, connectionTimeout: 3_000, throwOnRequestTimeout: true };
   const sqs = new SQSClient({ region, endpoint, requestHandler });
   const s3 = new S3Client({ region, endpoint, forcePathStyle: !!endpoint, requestHandler });
   const queueUrl = env.SCAN_QUEUE_URL;

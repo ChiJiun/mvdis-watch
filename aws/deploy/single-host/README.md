@@ -82,9 +82,37 @@ ssh -N -L 8200:127.0.0.1:8200 <使用者>@<主機>
 `DISPATCH_ENABLED=1` 時，dispatcher 每分鐘會送 `HOT_PER_TICK + COLD_PER_TICK`（預設 11＋3＝14）個 **live** 任務，
 worker 會實際查詢監理服務網。上限和保護規則與 AWS 版相同（契約 §4.2：過期、帶 runId 的 live 任務一律不抓）。
 
-- 如果同時還有其他爬蟲在抓官網（例如根目錄的 Cloudflare 原型），官網收到的請求會相應增加，請自行斟酌。
+- **「每分鐘 14 次」以日曆分鐘計**：每個整分鐘最多派送一批，每個日曆分鐘的實際抓取不超過 14 次。
+  每批抓取有 1–3 秒的抖動，下一批又在整點開始，所以任意 60 秒的滑動視窗在正常運作時可能到 20 多次；
+  平均負載仍是每分鐘 14 次。這和契約 §4.1、Cloudflare 原型、AWS 版的 EventBridge 定義相同。
+- **同一時間只能有一套系統在抓官網。** 根目錄的 Cloudflare 原型、AWS 版、這個單機版各自都會用滿每分鐘 14 次，
+  同時開著就會加倍。部署 AWS 版（或啟用原型的 cron）之前，先把這裡的 `DISPATCH_ENABLED` 改成 `0`
+  （或 `docker compose stop scheduler`）。
 - 只想驗證流程、不打官網：維持 `.env` 的預設 `DISPATCH_ENABLED=0`，再用下面的方式灌 replay 任務。
 - 要停止抓官網：把 `DISPATCH_ENABLED` 改回 `0`，再 `docker compose up -d scheduler`（佇列裡剩下的 live 任務 120 秒後會過期不抓）。
+
+## live 轉發器（主機連不到官網時）
+
+監理服務網會丟掉部分海外 IP 的連線（實測 Oracle 東京區域的 VM：IPv4 連線逾時，同一台主機連其他 gov.tw 網站正常）。
+這時可以把 live 請求交給 [`live-proxy/`](live-proxy/) 這個 Cloudflare Worker 轉發：
+
+- 只接受 `ALLOWED_IPS` 裡的來源 IP（部署時帶入，不寫進 repo）；沒設定就全部拒絕。
+- 只轉發到官網的查詢端點（固定路徑），只允許 GET／POST，不轉送 cookie。
+- 不另外限速：請求量仍由這裡的 scheduler 控制（每分鐘最多 14 則）。
+
+```bash
+# 在有安裝 wrangler 的電腦上（例如 repo 根目錄 npm ci 之後）
+cd aws/deploy/single-host/live-proxy
+npx wrangler login
+npx wrangler deploy --var ALLOWED_IPS:<VM 的公開 IPv4>
+# 在 VM 上確認轉發器連得到官網（只會發 1 個請求）
+curl -s -o /dev/null -w "%{http_code}\n" https://mvdis-live-proxy.<子網域>.workers.dev/m3-emv-trn/exm/locations
+```
+
+確認回 200 之後，在 VM 的 `.env` 設定 `MVDIS_LIVE_URL=https://mvdis-live-proxy.<子網域>.workers.dev`，
+再 `docker compose up -d worker`。
+
+> 注意：這等於讓 Cloudflare 代替海外主機向官網發請求。官網若明確禁止自動查詢或加上驗證機制，應停止使用（見提案的「不在範圍內」）。
 
 ## 只用 Replay 模擬站驗證（不打官網）
 

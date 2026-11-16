@@ -1,0 +1,12 @@
+# 單機部署的 live 轉發器，用法見 ../README.md 的「live 轉發器」。
+# ALLOWED_IPS（VM 的公開 IP）部署時用 --var 帶入，不寫進 repo：
+#   npx wrangler deploy --var ALLOWED_IPS:<VM 的公開 IPv4>
+name = "mvdis-live-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-10-01"
+workers_dev = true
+# 不需要預覽網址
+preview_urls = false
+
+[observability]
+enabled = true
