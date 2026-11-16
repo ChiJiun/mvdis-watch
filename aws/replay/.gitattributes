@@ -1,0 +1,2 @@
+# 官網原始頁面是 CRLF，保留原始位元組，避免 autocrlf 讓不同平台 build 出不同模板
+fixtures/raw/*.html -text

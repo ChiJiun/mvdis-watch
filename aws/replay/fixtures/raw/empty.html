@@ -1,0 +1,1481 @@
+
+
+
+
+
+ 
+
+
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta property="og:type" content='website' />
+<meta property="og:url" content=""/>
+<meta property="og:image" content="/m3/images/ogimage.png"/>
+<title>監理服務網 - 考照預約報名</title>
+<link href="/m3/css/style.css" type="text/css" rel="stylesheet"/>
+<link href="/m3/css/emv.css" type="text/css" rel="stylesheet"/>
+<link href="/m3/css/jquery-ui-1.13.0.min.css" type="text/css" rel="stylesheet"/>
+<script type="text/javascript" src="/m3/scripts/jquery-3.6.0.min.js"></script>
+<noscript>
+<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+<script language="javascript" type="text/javascript" src="/m3/scripts/jquery-ui-1.13.0.min.js"></script>
+<noscript>
+<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+<script type="text/javascript" src="/m3/scripts/jquery.blockUI.js"></script>
+<noscript>
+<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+<script type="text/javascript" src="/m3/scripts/emv.js"></script>
+<noscript>
+<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+<script type="text/javascript" src="/m3/scripts/mvdis_tracking.js"></script>
+<noscript>
+<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+<script language="javascript" type="text/javascript" src="/FontSubsetOutput/WebFontStd-BBBFFD8F3296479BB605F7D3A0193B28/WebFontStd-BBBFFD8F3296479BB605F7D3A0193B28.js?5159548442"></script>
+<noscript>
+<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+<script type="text/javascript">
+$(window).on("unload", function() {
+	if (window.performance && 
+	        window.performance.navigation.type == 2) {
+	    	showMsg();
+	        console.log("返回上一頁");
+	        window.location.reload();	
+	}
+    $.unblockUI();                
+});
+function showMsg(msg){
+
+    var value = '作業處理中 ，請稍候...';
+    if(msg!=undefined){
+        value = msg;
+    }
+        
+    $.blockUI({
+        css : {
+            border : 'none',
+            padding : '15px',
+            backgroundColor : '#333',
+            '-webkit-border-radius' : '10px',
+            '-moz-border-radius' : '10px',
+            opacity : .9,
+            color : '#fd0',
+            'font-size' : '20px'
+        },
+        message : value
+        
+    });
+}
+function closeShowMsg(){
+    $.unblockUI();
+}
+
+function doPrint(){
+    window.print();
+}
+
+<!--
+function MM_swapImgRestore() { //v3.0
+  var i,x,a=document.MM_sr; for(i=0;a&&i<a.length&&(x=a[i])&&x.oSrc;i++) x.src=x.oSrc;
+}
+function MM_preloadImages() { //v3.0
+  var d=document; if(d.images){ if(!d.MM_p) d.MM_p=new Array();
+    var i,j=d.MM_p.length,a=MM_preloadImages.arguments; for(i=0; i<a.length; i++)
+    if (a[i].indexOf("#")!=0){ d.MM_p[j]=new Image; d.MM_p[j++].src=a[i];}}
+}
+
+function MM_findObj(n, d) { //v4.01
+  var p,i,x;  if(!d) d=document; if((p=n.indexOf("?"))>0&&parent.frames.length) {
+    d=parent.frames[n.substring(p+1)].document; n=n.substring(0,p);}
+  if(!(x=d[n])&&d.all) x=d.all[n]; for (i=0;!x&&i<d.forms.length;i++) x=d.forms[i][n];
+  for(i=0;!x&&d.layers&&i<d.layers.length;i++) x=MM_findObj(n,d.layers[i].document);
+  if(!x && d.getElementById) x=d.getElementById(n); return x;
+}
+
+function MM_swapImage() { //v3.0
+  var i,j=0,x,a=MM_swapImage.arguments; document.MM_sr=new Array; for(i=0;i<(a.length-2);i+=3)
+   if ((x=MM_findObj(a[i]))!=null){document.MM_sr[j++]=x; if(!x.oSrc) x.oSrc=x.src; x.src=a[i+2];}
+}
+//-->
+
+
+</script>
+<noscript>
+<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+
+</head>
+
+<body onload="MM_preloadImages('/m3/images/top_btn_login_over.jpg','/m3/images/top_btn_join_over.jpg','/m3/images/tab_legal_over.gif')">
+<!-- header start -->
+    
+<div class="header">
+<table width="10%" border="0" align="center" cellpadding="0" cellspacing="0" summary="排版表格:Header" class="header_tb">
+  <tr>
+    <td colspan="2"><img src="/m3/images/space.gif" width="1000" height="1" alt="排版用圖" name="imgSpace" /></td>
+  </tr>
+  <tr>
+    <td><a href="/" ><img src="/m3/images/m3_logo.jpg" width="280" height="90" alt="監理服務網 logo" name="imgM3Logo" border="0" /></a></td>
+    <td valign="top">
+    <!-- top menu start -->
+    <table width="10%" border="0" align="right" cellpadding="0" cellspacing="0" summary="排版表格:TopMenu">
+      <tr>
+        <td align="right" valign="middle">
+        <div class="topmenu">
+          <a accesskey="T" href="#shortcut" title="上方功能選單區塊" id="shortcut" class="accesskey">:::</a>
+          <a href="/m3-emv-eng">English</a>|<a href="/m3-emv-cht/public/sitemap">網站地圖</a>|<a href="/m3-emv-kid">兒童版</a>|<a href="/m3-emv-mobo" id="emv_mobo" title="QRcode">行動版</a>|<a onClick="myNavFunc()" id="emv_app" title="APP_QRcode">監理服務 APP</a>
+          <!-- 2021/03 移除SafeTaiwan連結 by Clarence -->
+          <!-- <a href="http://www.safetaiwan.tw/" target="_blank"><img src="/m3/images/savetaiwan.jpg" title="安全臺灣風險管理協作平台" alt="安全臺灣風險管理協作平台" width="20" height="20"/></a>-->
+          <a href="http://www.drivetaiwan.tw/" target="_blank"><img src="/m3/images/drivetaiwan.png" title="行旅臺灣行動資訊匯流平台" alt="行旅臺灣行動資訊匯流平台" width="20" height="20"/></a> 
+                               
+                    
+        </div>
+        
+        <img src="/m3/images/space.gif" width="500" height="1" alt="排版用圖" name="imgSpace" />
+        </td>
+               <td><img src="/m3/images/top_btn_left.jpg" width="8" height="45" alt="排版用圖" name="imgTopbtnLeft" /></td>
+        <td><a href="/m3-emv-mem/member" onmouseout="MM_swapImgRestore()" onblur="MM_swapImgRestore()" onmouseover="MM_swapImage('Image6','','/m3/images/top_btn_login_over.jpg',1)" onfocus="MM_swapImage('Image6','','/m3/images/top_btn_login_over.jpg',1)"><img src="/m3/images/top_btn_login.jpg" alt="會員登入" name="imgTopbtnLogin" width="64" height="45" border="0" id="Image6" /></a></td>
+        <td><img src="/m3/images/top_btn_gap.jpg" width="11" height="45" alt="排版用圖" name="imgTopbtnGap" /></td>
+        <td><a href="/m3-emv-mem/account" onmouseout="MM_swapImgRestore()" onblur="MM_swapImgRestore()" onmouseover="MM_swapImage('Image7','','/m3/images/top_btn_join_over.jpg',1)" onfocus="MM_swapImage('Image7','','/m3/images/top_btn_join_over.jpg',1)"><img src="/m3/images/top_btn_join.jpg" alt="註冊會員" name="imgTopbtnJoin" width="64" height="45" border="0" id="Image7" /></a></td>
+        <td><img src="/m3/images/top_btn_right.jpg" width="8" height="45" alt="排版用圖" name="imgTopbtnRight" /></td>
+             </tr>
+    </table>
+    <!-- top menu end -->
+    </td>
+  </tr>
+</table>
+</div><!-- header -->
+<div id="qrcode" style="display:none;">
+	<table>
+		<tr align="center">
+			<td>
+				行動版
+			</td>
+		</tr>
+		<tr align="center">
+			<td>
+				<a href="#">
+	    		<img src="/m3/images/m_QRCode.png" width="120px" alt="QRcode" height="120px"/>
+	    	</a>
+			</td>
+		</tr>
+	</table>
+</div>
+<script>
+    $('#emv_mobo').tooltip({content: function(){
+        return $('#qrcode').clone().show();
+    },
+	 open: function (event, ui) {
+        ui.tooltip.css("max-width", "400px");
+    },
+	position: { my: "left bottom-20" }
+	});
+    function beforSearch(){
+    	var st = $("#txtSearchText").val();
+    	st = st.trim();
+    	if(st == '' ){
+    		alert('請輸入搜尋關鍵字');
+    		return false;
+    	}
+    	return true;
+    }
+    
+</script>
+<div id="mobile_app" style="display:none;">
+	<table>
+		<tr align="center">
+			<td>
+				Android
+			</td>
+			<td>
+				IOS
+			</td>
+		</tr>
+		<tr align="center">
+			<td>
+				<a href="http://market.android.com/details?id=gov.mvdis.m3.emv.app.phone">
+	    		<img src="/m3/images/android_QRCode.png" width="120px" alt="QRcode" height="120px"/>
+	    	</a>
+			</td>
+			<td>
+				<a href="https://itunes.apple.com/tw/app/jian-li-fu-wu-app/id933737788?mt=8">
+	    		<img src="/m3/images/ios_QRCode.png" width="120px" alt="QRcode" height="120px"/>
+	    	</a>
+			</td>
+		</tr>
+	</table>
+</div>
+		
+<script type="text/javascript">
+    $('#emv_app').tooltip({content: function(){
+        return $('#mobile_app').clone().show();
+    },
+	 open: function (event, ui) {
+        ui.tooltip.css("max-width", "400px");
+    },
+	position: { my: "left bottom-20" }
+	
+	});
+</script>
+
+<!-- header end-->
+
+<!-- menu start -->
+<div class="menu" >
+<table width="10%" border="0" align="center" cellpadding="0" cellspacing="0" summary="排版表格:Menu">
+  <tr>
+    <td colspan="2"><img src="/m3/images/space.gif" width="1000" height="1" alt="排版用圖" name="imgSpace" /></td>
+  </tr>
+  <tr>
+    <td align="left">    
+    <!-- 選單項目 start -->
+   <script type="text/javascript">
+var init_menu_opacity='0';
+$(function(){
+   $("a[class*='menu_item']").click(function(){  
+   $("a[class*='menu_item']").removeClass('menu_item_bold'); 
+       var op = $(this).parent().children("div[class='mm_block']").css("opacity");
+       $("div[class='mm_block']").css({ opacity: '0' , top:'-50em'});
+       if(op == '0' || init_menu_opacity=='0'){
+           $(this).parent().children("div[class='mm_block']").css({ opacity: '1', top:'2.75em' });
+                   init_menu_opacity='1'; 
+                   $(this).addClass('menu_item_bold'); 
+       }
+   });
+});
+$(document).click(function (e) {
+   var drag = $("[class='mm_block']");
+   var target = e.target;
+   var isMemu = false;
+   $("[class*='menu_item']").each(function(){
+       if(this ==target ){
+       isMemu = true;
+           return false;
+       }
+     });
+   var hidden = true;
+   $("[class='mm_block']").each(function(){
+         if (isMemu || (this == target) || $.contains(this, target)) {
+             hidden = false; return false;
+          }
+   });
+   if(hidden){
+       drag.attr('style','opacity:0;top:-50em');
+           $("a[class*='menu_item']").removeClass('menu_item_bold'); 
+   }
+});
+</script>
+<table border='0' align='left' cellpadding='0' cellspacing='0' summary='排版表格:選單項目'>
+<tr>
+<td><a accesskey='U' href='#shortcut' title='主選單區塊' id='shortcut' class='accesskey'>:::</a></td>
+<td valign='middle'>
+<a href='#' class='menu_item'>駕駛人</a>
+<!-- 駕駛人項目的 mega menu start -->
+  <!-- 下面這個mm_block的div請直接用css的opacity和top屬性來控制顯示與否 -->
+   <div class='mm_block' style='opacity:0; top:-50em'>
+  <table width='10%' border='0' align='center' cellpadding='0' cellspacing='0' 
+summary='排版表格:MegaMenu' class='mm_table'>
+    <tr>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+駕照<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-mem/member/driver'><span>&#8250;</span> 
+駕照及駕駛經歷查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-drv/driver/experience'><span>&#8250;</span> 
+駕照經歷證明下載<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-drv/driver/jpApply'><span>&#8250;</span> 
+駕照日文譯本申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-drv/driver/noAccidentApply'><span>&#8250;</span> 
+駕駛執照審查證明書申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-drv/driver/drvLeaningLic'><span>&#8250;</span> 
+學習駕駛證查詢</a></li>
+<li><a href='/m3-emv-drv/driver/driverLicenseCancellation'><span>&#8250;</span> 
+駕照自願註銷申請</a></li>
+<li><a href='/m3-emv-mem/digitalDriversLicense/checkAgreement'><span>&#8250;</span> 
+駕照驗證卡申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+聯絡地址<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-mem/member/addr'><span>&#8250;</span> 
+住居所/就業處所設定及查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-car/car/collect'><span>&#8250;</span> 
+多元管道收集</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+高齡駕駛及換照<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-drv/driver/drvElderClass'><span>&#8250;</span> 
+高齡換照講習預約</a></li>
+<li><a href='/m3-emv-drv/driver/drvElderClass/query'><span>&#8250;</span> 
+高齡換照講習預約紀錄查詢</a></li>
+<li><a href='/m3-emv-drv/driver/elderDriverLicenseReplacement/question'><span>&#8250;</span> 
+高齡駕駛人駕照管理制度問卷填寫</a></li>
+<li><a href='https://cyi.thb.gov.tw/75up/intro.htm'  target="_blank"><span>&#8250;</span> 
+高齡駕駛人認知檢測練習平台<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+其他駕照資訊<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-drv/driver/highRiskInfo'><span>&#8250;</span> 
+高風險駕駛人換發短期駕照專區</a></li>
+<li><a href='https://www.thb.gov.tw/News_Download.aspx?n=561&sms=12823'  target="_blank"><span>&#8250;</span> 
+主要國家駕照互惠情形<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+          </ul>
+      </td>
+<td valign='top' class='empty'>
+<img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+<!-- empty -->
+</td>
+<td valign="top">
+<img src='/m3/images/space.gif' width='200' height='1' alt='排版用圖' name='imgSpace' />
+<div class='mm_note'>
+駕照相關資訊查詢及申請與聯絡資訊設定<a href='/m3-emv/drv/index'>&laquo;查看全部&raquo;</a>
+<div class='align_c'><a href='/m3-emv/drv/index'><img src='/m3/images/01.jpg' border='0' alt='右方固定圖片' name='imgNotePic' /></a></div>
+</div>
+</td>
+       </tr>
+ </table>
+ </div><!-- mm_block -->
+ </td>
+<td><img src='/m3/images/menu_gap.jpg' width='1' height='44' alt='排版用圖' name='imgMenuGap' align='absmiddle' /></td>
+<td valign='middle'>
+<a href='#' class='menu_item'>汽機車</a>
+<!-- 駕駛人項目的 mega menu start -->
+  <!-- 下面這個mm_block的div請直接用css的opacity和top屬性來控制顯示與否 -->
+   <div class='mm_block' style='opacity:0; top:-50em'>
+  <table width='10%' border='0' align='center' cellpadding='0' cellspacing='0' 
+summary='排版表格:MegaMenu' class='mm_table'>
+    <tr>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+行照及牌照<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-car/car/licenseQuery'><span>&#8250;</span> 
+行照有效期限查詢</a></li>
+<li><a href='/m3-emv-car/car/licenseApply'><span>&#8250;</span> 
+行照補發申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-car/car/carIdApply'><span>&#8250;</span> 
+牌照登記書補發申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='https://paytax.nat.gov.tw/Main4.aspx?opt=4'  target="_blank"><span>&#8250;</span> 
+牌照稅繳納<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+<li><a href='/m3-emv-car/car/plateRevokeStatusQuery'><span>&#8250;</span> 
+牌照報廢及繳吊註銷查詢</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+公路養管費(原汽燃費)<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-fee/fee/chargesInfo'><span>&#8250;</span> 
+公路使用養護安全管理費專區</a></li>
+<li><a href='/m3-emv-fee/fee/fuelFee'><span>&#8250;</span> 
+公路養管費查詢及繳納</a></li>
+<li><a href='/m3-emv-fee/fee/fuelFeeRecord'><span>&#8250;</span> 
+公路養管費繳納紀錄查詢</a></li>
+<li><a href='/m3-emv-car/fee/paymentSet'><span>&#8250;</span> 
+公路養管費約定扣款設定及查詢</a></li>
+<li><a href='/m3-emv-car/fee/ebill'><span>&#8250;</span> 
+公路養管費電子繳款單申請</a></li>
+<li><a href='/m3-emv-fee/fee/fuelFeeRefund'><span>&#8250;</span> 
+公路養管費退費查詢及申請</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+車輛及檢驗<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-mem/member/car'><span>&#8250;</span> 
+個人名下車輛查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-car/car/carMainDriverInfo'><span>&#8250;</span> 
+車輛主要駕駛人登錄申辦專區</a></li>
+<li><a href='/m3-emv-car/car/checkQuery'><span>&#8250;</span> 
+車輛定檢日查詢</a></li>
+<li><a href='/m3-emv-car/car/examReserveApply'><span>&#8250;</span> 
+車輛定期檢驗預約<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-car/car/examReserveQuery'><span>&#8250;</span> 
+車輛定期檢驗預約紀錄查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-car/car/dmvExamReserve'><span>&#8250;</span> 
+車輛臨時檢驗預約及查詢</a></li>
+<li><a href='/m3-emv-mk3/agent/webAgentFactory'><span>&#8250;</span> 
+代檢廠查詢</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+車輛業務線上辦理<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-car/car/carOnlineRevoke'><span>&#8250;</span> 
+車牌報廢及繳銷申請</a></li>
+<li><a href='/m3-emv-car/car/carOnlineStopDriving'><span>&#8250;</span> 
+車牌停駛申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-car/car/plateRevokeQuery'><span>&#8250;</span> 
+車牌異動申請進度查詢</a></li>
+<li><a href='/m3-emv-car/car/carLoseApply'><span>&#8250;</span> 
+汽機車失竊註銷申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-car/car/carOnceNotice'><span>&#8250;</span> 
+車輛異動一次性告知單查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-car/car/movablesApplyInfo'><span>&#8250;</span> 
+車輛動產擔保交易線上申請專區</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+其他車輛資訊<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-sev/taxi/query'><span>&#8250;</span> 
+計程車查詢</a></li>
+<li><a href='/m3-emv-car/car/kidsVehicle'><span>&#8250;</span> 
+幼童專用車查詢</a></li>
+<li><a href='/m3-emv-car/car/carVisual'><span>&#8250;</span> 
+大型車行車視野輔助車輛查詢</a></li>
+<li><a href='/m3-emv-car/car/carVisual/agencyList'><span>&#8250;</span> 
+常壓液態罐槽車輛檢驗機構查詢</a></li>
+<li><a href='/m3-emv-car/car/electricBicycles/eBicyclesDoc'><span>&#8250;</span> 
+微型電動二輪車專區</a></li>
+<li><a href='/m3-emv-car/car/insuranceReport/insuranceReportDoc'><span>&#8250;</span> 
+強制險擴大併同舉發專區</a></li>
+<li><a href='/m3-emv-car/car/carWindowTint/window_tint_01'><span>&#8250;</span> 
+汽車車窗及擋風玻璃黏貼隔熱紙專區</a></li>
+          </ul>
+      </td>
+<td valign="top">
+<img src='/m3/images/space.gif' width='200' height='1' alt='排版用圖' name='imgSpace' />
+<div class='mm_note'>
+車輛相關資訊查詢及申請<a href='/m3-emv/car/index'>&laquo;查看全部&raquo;</a>
+<div class='align_c'><a href='/m3-emv/car/index'><img src='/m3/images/26.jpg' border='0' alt='右方固定圖片' name='imgNotePic' /></a></div>
+</div>
+</td>
+       </tr>
+ </table>
+ </div><!-- mm_block -->
+ </td>
+<td><img src='/m3/images/menu_gap.jpg' width='1' height='44' alt='排版用圖' name='imgMenuGap' align='absmiddle' /></td>
+<td valign='middle'>
+<a href='#' class='menu_item'>交通違規</a>
+<!-- 駕駛人項目的 mega menu start -->
+  <!-- 下面這個mm_block的div請直接用css的opacity和top屬性來控制顯示與否 -->
+   <div class='mm_block' style='opacity:0; top:-50em'>
+  <table width='10%' border='0' align='center' cellpadding='0' cellspacing='0' 
+summary='排版表格:MegaMenu' class='mm_table'>
+    <tr>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+一般交通違規<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-vil/vil/penaltyQueryPay'><span>&#8250;</span> 
+交通違規查詢及繳納</a></li>
+<li><a href='/m3-emv-vil/vil/penaltyQueryPayRecord'><span>&#8250;</span> 
+個人交通違規繳納紀錄查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-vil/vil/penaltyQueryPayRecord/legal'><span>&#8250;</span> 
+法人交通違規繳納紀錄查詢</a></li>
+<li><a href='/m3-emv-vil/vil/penaltyTicketInstallment'><span>&#8250;</span> 
+交通違規分期查詢及繳納</a></li>
+<li><a href='/m3-emv-vil/vil/ticketBatchInstallment'><span>&#8250;</span> 
+交通違規多筆分期查詢及繳納</a></li>
+<li><a href='/m3-emv-vil/vil/pointTransferInfo'><span>&#8250;</span> 
+交通違規轉歸責申請及查詢</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+強制險違規<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-vil/vil/penaltyQueryPay'><span>&#8250;</span> 
+強制險違規查詢及繳納</a></li>
+<li><a href='/m3-emv-vil/vil/penaltyQueryPayRecordForInsure'><span>&#8250;</span> 
+個人強制險違規繳納紀錄查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-vil/vil/penaltyQueryPayRecordForInsure/legal'><span>&#8250;</span> 
+法人強制險違規繳納紀錄查詢</a></li>
+<li><a href='/m3-emv-vil/vil/penaltyQueryPayTerm'><span>&#8250;</span> 
+強制險違規分期查詢及繳納</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+記點及記次<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-vil/vil/driverPenalty'><span>&#8250;</span> 
+駕駛人違規記點查詢</a></li>
+<li><a href='/m3-emv-vil/vil/driverLicensePenalty'><span>&#8250;</span> 
+駕照吊扣及吊(註)銷查詢</a></li>
+<li><a href='/m3-emv-vil/vil/carPenalty'><span>&#8250;</span> 
+汽機車違規記次查詢</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+道安講習<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-drv/driver/safeClass'><span>&#8250;</span> 
+道安講習資訊查詢</a></li>
+<li><a href='/m3-emv-vil/vil/drunkDrive'><span>&#8250;</span> 
+個人酒駕紀錄查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='https://slp.mvdis.gov.tw'  target="_blank"><span>&#8250;</span> 
+道路交通安全講習預約報名及查詢<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+<li><a href='/m3-emv-drv/driver/drvRoadSafety'><span>&#8250;</span> 
+道路交通安全講習新制專區</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+交通違規相關資訊<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-vil/vil/pointTransferInfo/penalty'><span>&#8250;</span> 
+交通違規知識庫</a></li>
+<li><a href='/m3-emv-vil/vil/pointTransferInfo'><span>&#8250;</span> 
+交通違規轉歸責專區</a></li>
+<li><a href='/m3-emv-vil/vil/ruleQuery/ruleNo'><span>&#8250;</span> 
+交通違規條款查詢</a></li>
+<li><a href='https://lis.ly.gov.tw/lglawc/lglawkm'  target="_blank"><span>&#8250;</span> 
+最新公布法律<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+          </ul>
+      </td>
+<td valign="top">
+<img src='/m3/images/space.gif' width='200' height='1' alt='排版用圖' name='imgSpace' />
+<div class='mm_note'>
+交通罰鍰查詢及繳納<a href='/m3-emv/vil/index'>&laquo;查看全部&raquo;</a>
+<div class='align_c'><a href='/m3-emv/vil/index'><img src='/m3/images/03.jpg' border='0' alt='右方固定圖片' name='imgNotePic' /></a></div>
+</div>
+</td>
+       </tr>
+ </table>
+ </div><!-- mm_block -->
+ </td>
+<td><img src='/m3/images/menu_gap.jpg' width='1' height='44' alt='排版用圖' name='imgMenuGap' align='absmiddle' /></td>
+<td valign='middle'>
+<a href='#' class='menu_item'>考試報名</a>
+<!-- 駕駛人項目的 mega menu start -->
+  <!-- 下面這個mm_block的div請直接用css的opacity和top屬性來控制顯示與否 -->
+   <div class='mm_block' style='opacity:0; top:-50em'>
+  <table width='10%' border='0' align='center' cellpadding='0' cellspacing='0' 
+summary='排版表格:MegaMenu' class='mm_table'>
+    <tr>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+機車危險感知教育<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='https://hpt.thb.gov.tw/reserve/index'  target="_blank"><span>&#8250;</span> 
+機車危險感知教育平台<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+<li><a href='/m3-emv-trn/exm/hazardPerception/expQuery'><span>&#8250;</span> 
+機車危險感知測驗紀錄查詢</a></li>
+<li><a href='/m3-emv-trn/exm/hazardPerception/goInfo'><span>&#8250;</span> 
+機車危險感知影片專區</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+預約報名及查詢<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv/mustknow/moto'><span>&#8250;</span> 
+機車駕照考試須知</a></li>
+<li><a href='/m3-emv/mustknow/car'><span>&#8250;</span> 
+汽車駕照考試須知</a></li>
+<li><a href='https://www.mvdis.gov.tw/m3-simulator-drv/index'  target="_blank"><span>&#8250;</span> 
+駕照線上模擬測驗<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+<li><a href='/m3-emv-trn/exm/locations'><span>&#8250;</span> 
+考照預約報名</a></li>
+<li><a href='/m3-emv-trn/exm/query'><span>&#8250;</span> 
+考照預約報名紀錄查詢</a></li>
+<li><a href='/m3-emv-trn/exm/conditionCheck'><span>&#8250;</span> 
+考照預約報名資格查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-trn/exm/safetyCourse'><span>&#8250;</span> 
+酒駕防制教育課程預約及查詢</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+公路人員訓練所<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-trn/participant?tc=400'><span>&#8250;</span> 
+大客車定期訓練與遊覽車職前訓練報名及查詢</a></li>
+<li><a href='/m3-emv-trn/participant?tc=200'><span>&#8250;</span> 
+駕訓機構師資定期訓練報名及查詢</a></li>
+<li><a href='/m3-emv-trn/applyCourse'><span>&#8250;</span> 
+訓練班預約報名及查詢</a></li>
+<li><a href='/m3-emv-trn/trnRegistration'><span>&#8250;</span> 
+檢考驗員檢定線上報名及查詢</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+駕訓班<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-mk3/driver/webDriverSchool'><span>&#8250;</span> 
+駕訓班查詢</a></li>
+<li><a href='/m3-emv-mk3/industry/driverSchool/driverSchoolPeriod'><span>&#8250;</span> 
+駕訓班業者管理系統<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+體檢代辦所<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-hca/agency/query'><span>&#8250;</span> 
+體檢代辦所查詢</a></li>
+<li><a href='/m3-emv-hca/index'><span>&#8250;</span> 
+體檢代辦所業者管理系統<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+          </ul>
+      </td>
+<td valign="top">
+<img src='/m3/images/space.gif' width='200' height='1' alt='排版用圖' name='imgSpace' />
+<div class='mm_note'>
+汽機車模擬試題、考照報名、駕訓班及體檢代辦所<a href='/m3-emv/test/index'>&laquo;查看全部&raquo;</a>
+<div class='align_c'><a href='/m3-emv/test/index'><img src='/m3/images/24.jpg' border='0' alt='右方固定圖片' name='imgNotePic' /></a></div>
+</div>
+</td>
+       </tr>
+ </table>
+ </div><!-- mm_block -->
+ </td>
+<td><img src='/m3/images/menu_gap.jpg' width='1' height='44' alt='排版用圖' name='imgMenuGap' align='absmiddle' /></td>
+<td valign='middle'>
+<a href='#' class='menu_item'>選號標牌</a>
+<!-- 駕駛人項目的 mega menu start -->
+  <!-- 下面這個mm_block的div請直接用css的opacity和top屬性來控制顯示與否 -->
+   <div class='mm_block' style='opacity:0; top:-50em'>
+  <table width='10%' border='0' align='center' cellpadding='0' cellspacing='0' 
+summary='排版表格:MegaMenu' class='mm_table'>
+    <tr>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+網路選號<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-plate/webpickno/queryPickNo/docView'><span>&#8250;</span> 
+選號說明文件</a></li>
+<li><a href='/m3-emv-plate/webpickno/member/queryFitNewPlate'><span>&#8250;</span> 
+新式車牌查詢</a></li>
+<li><a href='/m3-emv-plate/webpickno/queryPickNo'><span>&#8250;</span> 
+選號及轉帳<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-plate/webpickno/member/queryPaymentList'><span>&#8250;</span> 
+選號轉帳紀錄查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+號牌標售<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-plate/bid/qa'><span>&#8250;</span> 
+標牌說明文件</a></li>
+<li><a href='/m3-emv-plate/bid/announce'><span>&#8250;</span> 
+號牌標售公告</a></li>
+<li><a href='/m3-emv-plate/bid/queryBiding'><span>&#8250;</span> 
+競標中號牌查詢</a></li>
+<li><a href='/m3-emv-plate/bid/profile'><span>&#8250;</span> 
+競標車輛登錄<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-plate/bid/plate'><span>&#8250;</span> 
+號牌競標參與<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-plate/bid/transfer'><span>&#8250;</span> 
+得標轉帳繳費<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-plate/bid/queryBid'><span>&#8250;</span> 
+標售紀錄查詢</a></li>
+<li><a href='/m3-emv-plate/bid/deposits'><span>&#8250;</span> 
+保證金繳納紀錄查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+憑證環境檢測<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv/env'  target="_blank"><span>&#8250;</span> 
+自然人憑證檢測<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+          </ul>
+      </td>
+<td valign='top' class='empty'>
+<img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+<!-- empty -->
+</td>
+<td valign='top' class='empty'>
+<img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+<!-- empty -->
+</td>
+<td valign="top">
+<img src='/m3/images/space.gif' width='200' height='1' alt='排版用圖' name='imgSpace' />
+<div class='mm_note'>
+網路選號及號牌標售<a href='/m3-emv/plate/index'>&laquo;查看全部&raquo;</a>
+<div class='align_c'><a href='/m3-emv/plate/index'><img src='/m3/images/14.jpg' border='0' alt='右方固定圖片' name='imgNotePic' /></a></div>
+</div>
+</td>
+       </tr>
+ </table>
+ </div><!-- mm_block -->
+ </td>
+<td><img src='/m3/images/menu_gap.jpg' width='1' height='44' alt='排版用圖' name='imgMenuGap' align='absmiddle' /></td>
+<td valign='middle'>
+<a href='#' class='menu_item'>業者資訊</a>
+<!-- 駕駛人項目的 mega menu start -->
+  <!-- 下面這個mm_block的div請直接用css的opacity和top屬性來控制顯示與否 -->
+   <div class='mm_block' style='opacity:0; top:-50em'>
+  <table width='10%' border='0' align='center' cellpadding='0' cellspacing='0' 
+summary='排版表格:MegaMenu' class='mm_table'>
+    <tr>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+公路客運/遊覽車<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-mk3/freeway/query'><span>&#8250;</span> 
+公路客運公司查詢</a></li>
+<li><a href='/m3-emv-mk3/tourBus/query'><span>&#8250;</span> 
+遊覽車公司查詢</a></li>
+<li><a href='/m3-emv-mk3/accessible/query'><span>&#8250;</span> 
+無障礙遊覽車查詢</a></li>
+<li><a href='/m3-emv-mk3/tourBus/rental/safetyRules'><span>&#8250;</span> 
+遊覽車安全規定查詢</a></li>
+<li><a href='/m3-emv-mk3/tourbus/tourBusInfo'><span>&#8250;</span> 
+學校辦理校外教學活動租用遊覽車專區</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+小客車租賃業<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-mk3/rentalVehicle/query'><span>&#8250;</span> 
+小客(貨)車租賃業公司查詢</a></li>
+<li><a href='/m3-emv-mk3/tourBus/rental'><span>&#8250;</span> 
+長租車租約查詢</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+臨時通行證申請<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-tpp/pcs/pcsANew'><span>&#8250;</span> 
+超重貨櫃類申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-tpp/pcs/pcsBNew'><span>&#8250;</span> 
+超載物品類申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-tpp/pcs/pcsCNew'><span>&#8250;</span> 
+動力機械類申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-tpp/pcs/pcsDNew'><span>&#8250;</span> 
+危險物品類申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-tpp/pcs/pcsPNew'><span>&#8250;</span> 
+營建用特種車類申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-tpp/pcs/queryRenew'><span>&#8250;</span> 
+屆期可續發案件查詢及申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-tpp/pcs/pcsSinglePass'><span>&#8250;</span> 
+單張臨時通行證查詢及續發申請<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+臨時通行證查詢及管理<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-tpp/pcs/query'><span>&#8250;</span> 
+整批臨時通行證申辦進度查詢及繳費<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-tpp/pcs/pcsSinglePassPayment'><span>&#8250;</span> 
+單張臨時通行證申請進度查詢及繳費<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+<li><a href='/m3-emv-tpp/pcs/pcsQueryPayRecord'><span>&#8250;</span> 
+臨時通行證線上繳納紀錄查詢<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+業者相關資訊查詢<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-mk3/trpOpenData/query'><span>&#8250;</span> 
+特許業申辦進度查詢</a></li>
+<li><a href='/m3-emv-pmo/job/query'><span>&#8250;</span> 
+業者缺員訊息查詢</a></li>
+<li><a href='/m3-emv-mk3/industry/trp/member'><span>&#8250;</span> 
+運輸業業者管理系統<img src='/m3/images/tinyicon_member.gif' width='17' height='17' alt='會員' align='absmiddle' name='imgMember' border='0' />
+</a></li>
+          </ul>
+      </td>
+<td valign="top">
+<img src='/m3/images/space.gif' width='200' height='1' alt='排版用圖' name='imgSpace' />
+<div class='mm_note'>
+運輸業者相關資訊查詢及申請<a href='/m3-emv/com/index'>&laquo;查看全部&raquo;</a>
+<div class='align_c'><a href='/m3-emv/com/index'><img src='/m3/images/19.jpg' border='0' alt='右方固定圖片' name='imgNotePic' /></a></div>
+</div>
+</td>
+       </tr>
+ </table>
+ </div><!-- mm_block -->
+ </td>
+<td><img src='/m3/images/menu_gap.jpg' width='1' height='44' alt='排版用圖' name='imgMenuGap' align='absmiddle' /></td>
+<td valign='middle'>
+<a href='#' class='menu_item'>認識監理</a>
+<!-- 駕駛人項目的 mega menu start -->
+  <!-- 下面這個mm_block的div請直接用css的opacity和top屬性來控制顯示與否 -->
+   <div class='mm_block' style='opacity:0; top:-50em'>
+  <table width='10%' border='0' align='center' cellpadding='0' cellspacing='0' 
+summary='排版表格:MegaMenu' class='mm_table'>
+    <tr>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+認識監理<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-cht/public/about'><span>&#8250;</span> 
+監理業務介紹</a></li>
+<li><a href='/m3-emv-cht/public/sitemap'><span>&#8250;</span> 
+網站地圖</a></li>
+<li><a href='http://www.thb.gov.tw/sites/ch/faq_list'  target="_blank"><span>&#8250;</span> 
+監理業務常見問答<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+<li><a href='/m3-emv-cht/public/appeal'><span>&#8250;</span> 
+意見信箱暨申訴平台</a></li>
+<li><a href='/m3-emv/docCheckList'><span>&#8250;</span> 
+監理業務應備證件查詢</a></li>
+<li><a href='/m3-emv-cht/public/privacy'><span>&#8250;</span> 
+網站隱私權政策</a></li>
+<li><a href='/m3-emv-cht/public/safty'><span>&#8250;</span> 
+網站安全政策</a></li>
+<li><a href='https://docs.google.com/forms/d/e/1FAIpQLScqgUj0pTQPd3uymxPCTU6NutQ5BakK0F_pkx2QEVAe1IO8-A/viewform'><span>&#8250;</span> 
+網站滿意度調查</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+所站服務<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv/news/office'><span>&#8250;</span> 
+監理所站位置</a></li>
+<li><a href='/m3-emv-drv/drv/bidWaiting'><span>&#8250;</span> 
+窗口等待人數查詢</a></li>
+<li><a href='/m3-emv-cht/public/news'><span>&#8250;</span> 
+網站最新消息</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+相關資源<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='https://www.mvdis.gov.tw/webMvdisLaw/'  target="_blank"><span>&#8250;</span> 
+法規檢索系統<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+<li><a href='/m3-emv-cht/public/relatedSites'><span>&#8250;</span> 
+相關網站</a></li>
+<li><a href='http://www.etax.nat.gov.tw/etwmain/front/ETW118W/CON/407/8188892212119493952?tagCode=20'  target="_blank"><span>&#8250;</span> 
+牌照稅<img src='/m3/images/tinyicon_offsite.gif' width='17' height='17' alt='會員' align='absmiddle' name='offsite' border='0' />
+</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+下載專區<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-cht/public/downloadInstruction'><span>&#8250;</span> 
+網站使用說明</a></li>
+<li><a href='/m3-emv-cht/public/downloadTrader'><span>&#8250;</span> 
+業者相關資訊</a></li>
+<li><a href='/m3-emv-cht/public/downloadRate'><span>&#8250;</span> 
+稅費規費費率</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+網站會員<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-mem/account'><span>&#8250;</span> 
+會員註冊</a></li>
+<li><a href='/m3-emv-cas/login'><span>&#8250;</span> 
+會員登入</a></li>
+          </ul>
+      </td>
+<td valign="top">
+<img src='/m3/images/space.gif' width='200' height='1' alt='排版用圖' name='imgSpace' />
+<div class='mm_note'>
+監理業務相關資訊<a href='/m3-emv/news/index'>&laquo;查看全部&raquo;</a>
+<div class='align_c'><a href='/m3-emv/news/index'><img src='/m3/images/20.jpg' border='0' alt='右方固定圖片' name='imgNotePic' /></a></div>
+</div>
+</td>
+       </tr>
+ </table>
+ </div><!-- mm_block -->
+ </td>
+<td><img src='/m3/images/menu_gap.jpg' width='1' height='44' alt='排版用圖' name='imgMenuGap' align='absmiddle' /></td>
+<td valign='middle'>
+<a href='#' class='menu_item'>事故鑑定</a>
+<!-- 駕駛人項目的 mega menu start -->
+  <!-- 下面這個mm_block的div請直接用css的opacity和top屬性來控制顯示與否 -->
+   <div class='mm_block' style='opacity:0; top:-50em'>
+  <table width='10%' border='0' align='center' cellpadding='0' cellspacing='0' 
+summary='排版表格:MegaMenu' class='mm_table'>
+    <tr>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+案件查詢<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-vil/cac/massQuery'><span>&#8250;</span> 
+車輛行車事故鑑定查詢</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+事故處理及鑑定<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-vil/cac/process/accident'><span>&#8250;</span> 
+交通事故處理流程</a></li>
+<li><a href='/m3-emv-vil/cac/process/case'><span>&#8250;</span> 
+鑑定案件作業流程</a></li>
+<li><a href='/m3-emv-vil/cac/contact'><span>&#8250;</span> 
+各區鑑定會轄區範圍及受理窗口查詢</a></li>
+<li><a href='/m3-emv-vil/cac/download'><span>&#8250;</span> 
+鑑定及覆議申請表下載</a></li>
+          </ul>
+      </td>
+      <td valign='top'>
+      <img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+      <div class='mm_subtitle'>
+事故鑑定常見問題<img src='/m3/images/icon_arr.gif' width='17' height='17' alt='箭頭圖示' align='absmiddle' border='0' name='imgIcon' /></div>
+        <ul class='mm_list'>
+<li><a href='/m3-emv-vil/cac/question/accident'><span>&#8250;</span> 
+交通事故相關問題</a></li>
+<li><a href='/m3-emv-vil/cac/question/case'><span>&#8250;</span> 
+事故鑑定相關問題</a></li>
+          </ul>
+      </td>
+<td valign='top' class='empty'>
+<img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+<!-- empty -->
+</td>
+<td valign='top' class='empty'>
+<img src='/m3/images/space.gif' width='180' height='1' alt='排版用圖' name='imgSpace' />
+<!-- empty -->
+</td>
+<td valign="top">
+<img src='/m3/images/space.gif' width='200' height='1' alt='排版用圖' name='imgSpace' />
+<div class='mm_note'>
+事故鑑定相關資訊<a href='/m3-emv-vil/cac/question/case'>&laquo;查看全部&raquo;</a>
+<div class='align_c'><a href='/m3-emv-vil/cac/question/case'><img src='/m3/images/20.jpg' border='0' alt='右方固定圖片' name='imgNotePic' /></a></div>
+</div>
+</td>
+       </tr>
+ </table>
+ </div><!-- mm_block -->
+ </td>
+<td><img src='/m3/images/menu_gap.jpg' width='1' height='44' alt='排版用圖' name='imgMenuGap' align='absmiddle' /></td>
+  </tr>
+</table>
+
+    <!-- 選單項目 end -->
+    </td>
+    <td align="right">
+      <!-- 搜尋表單 start -->
+     <!-- 
+     <form name="formSearch" action="/m3-emv/search" method="post">
+      <div class="search_bar">
+      <label for="txtSearchText" class="search_label">搜尋:</label>
+      <input name="txtSearchText" id="txtSearchText" type="text" class="search_ipt" accesskey="S" />
+      <input name="smtSearchSubmit" type="image" border="0" align="top" alt="送出查詢" src="/m3/images/search_btn.gif" onclick="return beforSearch();">
+      </div>
+      </form> 
+      -->
+      <!-- 搜尋表單 end -->
+    </td>
+  </tr>
+</table>
+</div><!-- menu -->
+
+
+<!-- menu end-->
+
+<!-- 主內容+側邊選單 start -->
+<table width="10%" border="0" align="center" cellpadding="0" cellspacing="0" summary="排版表格:主內容+側邊選單" class="gap_b2">
+  <tr>
+    <td><img src="/m3/images/space.gif" width="1000" height="20" alt="排版用圖" name="imgSpace" /></td>
+
+
+
+  </tr>
+  <tr>
+    <td valign="top">
+    <!-- 主內容 start -->
+    <a href="#" name="anchor"></a>
+    <!-- 顯示警告或錯誤訊息 -->
+<div id="showmsg" style="${showstyle}">
+	<table width="100%" border="0" align="center" cellpadding="0" cellspacing="0" summary="排版表格:提示訊息" class="msg_box_warning">
+		<tr>
+			<td align="center" valign="middle" width="100%" id="headerMessage" name="headerMessage" >該條件查詢不到符合的考試場次，敬請重新選擇</td>
+			<td align="right" valign="middle"><a href="#"  onclick="javascript:$('#showmsg').css('display', 'none'); " class="std_btn tiny_btn"  style="float:right">X</a></td>
+  		</tr>
+	</table>
+</div>
+    <!-- 麵包屑 start -->
+    
+      <a href="/"><img src="/m3/images/icon_home.gif" width="16" height="16" alt="回首頁" border="0" align="absmiddle" name="imgBackHome" />首頁</a>  &#8250; <a href="/m3-emv/test/index">考試報名</a> &#8250; 預約報名及查詢 &#8250; 考照預約報名
+  
+    <!-- 麵包屑 end -->
+    
+
+
+
+
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<script type="text/javascript"
+	src="/m3/scripts/jquery.validate.min.js"></script>
+<noscript>
+	<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+<script type="text/javascript"
+	src="/m3/scripts/custom-validate.js"></script>
+<noscript>
+	<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+<script type="text/javascript"
+	src="/m3/scripts/jquery.datepick.tw.js"></script>
+<noscript>
+	<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+
+    
+
+<script>
+
+	$(function() {
+	
+		//m3noticeSet("exmLocations.js");
+		m3noticeSet("exmQuery.js");
+		//openConfirm();
+		// expectExamDateStr, D+40
+		var maxDate = new Date(1797356004909);
+		$('#expectExamDateStr').datepicker({
+			dateFormat : 'yyy/mm/dd',
+			showOn : 'both',
+			buttonImage : '/m3/images/icon_calendar.gif',
+			changeYear : true,
+			changeMonth : true,
+			yearRange : 'c:c+1',
+			minDate: 'd',
+			maxDate : maxDate,
+			beforeShow : function() {
+				setTimeout(function() {
+					$('#ui-datepicker-div').css("z-index", 9999);
+				}, 100);
+			}
+		});
+		$('[class=ui-datepicker-trigger]').attr('style',
+				'vertical-align:middle;background:#ffffff;border:0px;');
+		var lics = {};
+		var selLic = $("#licenseTypeCode").val();
+		$.each($("#licenseTypeCode option"), function(i, value) {
+			if(value.value!=''){
+				lics[value.value]=$(value).html();
+			}
+		});
+		$("#licenseTypeCode option").remove();
+		$('#licenseTypeCode').append(
+							$("<option></option>").attr("value", '')
+									.text(''));
+		$.each(lics, function(i, value) {
+			if(i==3){
+				$('#licenseTypeCode').append(
+							$("<option></option>").attr("value", i)
+									.text(value));
+			}
+		});
+		$.each(lics, function(i, value) {
+			if(i!=3){
+				$('#licenseTypeCode').append(
+							$("<option></option>").attr("value", i)
+									.text(value));
+			}
+		});
+		$("#licenseTypeCode").val(selLic);
+		
+		var hpn = '';
+		if (hpn == 'Y') {
+			$.blockUI({
+				  message: $('#divConfirmDialog').html(), 
+				  css: {
+					  top:($(window).scrollTop()+400)+'px',
+					  position : 'absolute',
+					  cursor : 'defalut',
+					  padding: '5px', 
+					    '-webkit-border-radius': '10px', 
+					    '-moz-border-radius': '10px', 
+					    width: '50%',
+					    left:'25%'
+				  }
+			});
+		}
+		
+	});
+
+	function dmvOnChange() {
+		showMsg("查詢符合條件的監理站");
+		$("#method").val("dmvOnChange");
+		$("#form1").submit();
+		return false;
+	}
+
+	function query() {
+		showMsg(); // Mask
+		$("#method").val("query");
+		$("#form1").submit();
+		return false;
+	}
+
+	function query() {
+		showMsg(); // Mask
+		$("#method").val("query");
+		$("#form1").submit();
+		return false;
+	}
+	function trnTableClear() {
+		$("#trnTable > tbody").empty();
+	}
+
+	function preAdd(secDateStr, secId, divId) {
+		showMsg();
+		$("#secDateStr").val(secDateStr);
+		$("#secId").val(secId);
+		$("#divId").val(divId);
+
+		$("#method").val("preAdd");
+		$("#form1").attr('action',
+				'/m3-emv-trn/exm/signUp')
+		$("#form1").submit();
+		return false;
+	}
+	
+	function goRisk() {
+		window.open("https://hpt.thb.gov.tw/reserve/index");
+	}
+	function goExpQuery() {
+		window.open("/m3-emv-trn/exm/hazardPerception/expQuery#");
+	}
+		
+</script>
+<noscript>
+	<p>本Script功能提供表單驗證與送出之用，請將瀏覽器 javascript 功能開啟</p>
+</noscript>
+<h1>
+	考照預約報名
+	<div class="headline_btn">
+		<a href="#" class="print_btn" onclick="print(document);"><img
+			src="/m3/images/btn_icon_print.gif" width="16"
+			height="16" alt="列印圖示" border="0" align="absmiddle"
+			name="imgPrintIcon" /> 友善列印</a>
+	</div>
+	
+</h1>
+
+
+<div class="cont80" id="m3_warning"></div>
+
+<div class="cont90">
+	<div class="gap_t2">
+		<form id="form1" action="/m3-emv-trn/exm/locations#anchor" method="post" autocomplete="off">
+
+			
+			<input type="hidden" id="method" name="method" value="" />
+			<input id="secDateStr" name="secDateStr" type="hidden" value=""/>
+			<input id="secId" name="secId" type="hidden" value=""/>
+			<input id="divId" name="divId" type="hidden" value=""/>
+
+			<table width="100%" border="0" cellspacing="0" cellpadding="0"
+				class="form_table2">
+				<tbody>
+					<tr>
+						<th align="right" width="30%">報考照類 Type of Test：</th>
+						<td align="left"><select id="licenseTypeCode" name="licenseTypeCode" class="sel_std" onchange="trnTableClear();">
+								<option value=""></option>
+								<option value="5">普通輕型機車 (50cc 以下)</option><option value="3">普通重型機車</option><option value="A">普通小型車</option><option value="B">職業小型車</option><option value="C">普通大貨車</option><option value="D">職業大貨車</option><option value="E">普通大客車</option><option value="F">職業大客車</option><option value="G">普通聯結車</option><option value="H" selected="selected">職業聯結車</option>
+							</select> 
+						</td>
+					</tr>
+					<tr>
+						<th align="right">預計考試日期 Date of Test：</th>
+						<td align="left"><input id="expectExamDateStr" name="expectExamDateStr" class="ipt_std form_tiny" type="text" value="1151116"/>  <br /> <span
+							class="note">例：民國78年7月2日，請填0780702</span> <br /> <input id="onlyWeekend1" name="onlyWeekend" onchange="trnTableClear();" type="checkbox" value="true"/><input type="hidden" name="_onlyWeekend" value="on"/> 僅查周末及假日場次
+							Test on Holiday</td>
+					</tr>
+					<tr>
+						<th align="right">考試地點 Place of Test：</th>
+						<td align="left">
+							<select id="dmvNoLv1" name="dmvNoLv1" class="sel_std" onchange="dmvOnChange();">
+								<option value=""></option>
+								
+									
+										
+											<option value="20">臺北市區監理所（含金門馬祖）</option>
+										
+										
+										
+										
+										
+										
+										
+									
+								
+									
+										
+										
+											<option value="40">臺北區監理所（北宜花）</option>
+										
+										
+										
+										
+										
+										
+									
+								
+									
+										
+										
+										
+											<option value="50">新竹區監理所（桃竹苗）</option>
+										
+										
+										
+										
+										
+									
+								
+									
+										
+										
+										
+										
+											<option value="60">臺中區監理所（中彰投）</option>
+										
+										
+										
+										
+									
+								
+									
+										
+										
+										
+										
+										
+											<option value="70">嘉義區監理所（雲嘉南）</option>
+										
+										
+										
+									
+								
+									
+										
+										
+										
+										
+										
+										
+										
+											<option value="30">高雄市區監理所</option>
+										
+									
+								
+									
+										
+										
+										
+										
+										
+										
+											<option value="80" selected="selected">高雄區監理所（高屏澎東）</option>
+										
+										
+									
+								
+								
+							</select> 
+							<select id="dmvNo" name="dmvNo" class="sel_std" onchange="trnTableClear();">
+								<option value=""></option>
+								
+								
+									<option value="80">高雄區監理所(高雄市鳳山區武營路361號)</option>
+								
+									<option value="81">臺東監理站(臺東市正氣北路441號)</option>
+								
+									<option value="82">屏東監理站(屏東市忠孝路222號)</option>
+								
+									<option value="83" selected="selected">恆春監理分站(屏東縣恒春鎮草埔路11號)</option>
+								
+									<option value="84">澎湖監理站(澎湖縣馬公市光華里121號)</option>
+								
+							</select> 
+							
+								
+							
+							
+						</td>
+					</tr>
+				</tbody>
+			</table>
+
+			<div align="center">
+				<a href="#anchor" class="std_btn" onclick="query();"> <img
+					src="/m3/images/btn_icon_search.gif"
+					align="absmiddle" border="0" name="imgSearchIcon" /> 查詢場次 Search
+				</a>
+			</div>
+
+		</form>
+
+		<table width="100%" id="trnTable" class="tb_list_std gap_b2 gap_t">
+			<thead>
+				<tr>
+					<th>考試日期 (星期) Date of Test</th>
+					<th>場次組別說明 Desc.</th>
+					<th>可報名人數 Number</th>
+					<th>功能 function</th>
+				</tr>
+			</thead>
+			<tbody>
+				
+			</tbody>
+		</table>
+
+	</div>
+</div>
+
+
+<div class="cont90" id="m3_note"></div>
+<input type="hidden" id="exception" name="exception"
+	value="" />
+
+<div id="divConfirmDialog"
+	style="display: none;">
+	<div class="msg_box_success" style="text-align: left!important">
+	請點選
+	<span style='color:#ef7b0d'>【前往危險感知平台】</span>
+	完成危險感知測驗並登錄測驗紀錄後，方能預約考照；
+	<br>如欲查詢測驗登錄紀錄請點選
+	<span style='color:#ef7b0d'>【查詢測驗登錄紀錄】</span>
+	<br>如已完成測驗登錄請點選
+	<span style='color:#ef7b0d'>【選擇場次繼續報名】</span>
+	<center>
+		<a href="#" class="std_btn" id="btnConfirmYes"  onclick="goRisk();" >前往危險感知平台</a>
+		&nbsp;&nbsp;
+		<a href="#" class="std_btn" id="btnConfirmYes"  onclick="goExpQuery();" >查詢測驗登錄紀錄</a>
+		&nbsp;&nbsp;
+		<a href="#" class="std_btn" onclick="$.unblockUI();">選擇場次繼續報名</a>
+	</center>
+	</div>
+</div>
+
+	
+	
+	
+	
+	
+
+    
+    <!-- 主內容 end -->
+    </td>
+    	
+		</tr>
+</table><!-- 排版表格:主內容+側邊選單 -->
+<!-- 主內容+側邊選單 end -->
+
+<!-- foter start-->
+    
+<div class="footer">
+  <div class="footer_text">
+  <img src="/m3/images/space.gif" width="1000" height="1" alt="排版用圖" name="imgSpace" /><br />
+  <a href="/m3-emv-cht/public/privacy">隱私權政策</a>｜<a href="/m3-emv-cht/public/safty">網站安全政策</a><br />
+  地址：108234臺北市萬華區東園街65號<a href="/GIS/3dgis.aspx?gistype=A001&datatype=m&gisid=10"><img src="/m3/images/footer_icon_location.gif" width="20" height="20" alt="詳細地圖" border="0" align="absmiddle" name="imgMap" /></a>｜ 系統操作服務專線：0800-080-123(代表號)<br/>
+  監理服務專線：
+		<a href='https://webcall.hcrm.com.tw/thb/index.html' target='_blank' title='用路人服務中心專線'>
+		<img src='/files/mvdM3/images/thb-webcall.png'  alt='用路人服務中心專線' width='235' height='65'/></a>
+		<img src='/files/mvdM3/images/thb-qrcode.png'  alt='一掃而call' width='57' height='70'/><br />
+  如有監理業務疑問請向<a href="/m3-emv-cht/public/about_03_01">全國各監理機關</a> 洽詢<br />
+  交通部公路局 版權所有　 最佳瀏覽畫面1024*768
+  
+  <!-- 意見信箱,程式請直接用display控制是否顯示-->
+  <div class="feedback_btn" style="display:block;"><a href="/m3-emv-cht/public/appeal" target="_top"><img src="/m3/images/footer_icon_mail.gif" alt="意見信箱" name="imgFeedbackMail" border="0" align="absmiddle" /> 意見信箱</a></div>
+  </div>
+</div> 
+<!-- footer end-->
+</body>
+</html>
+
