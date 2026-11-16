@@ -6,6 +6,7 @@
 # notifier（Discord）沒有接上：SNS 的 live 事件會進 mvdis-notify-local 佇列，見 README。
 #
 # 對外只開放 api，而且只綁 127.0.0.1（用 SSH tunnel 看），其他服務只在 compose 的內部網路。
+# 要公開儀表板可以啟用選用的 tunnel 服務（Cloudflare Tunnel，只往外連），見 README。
 # 用法見同目錄的 README.md。
 
 # 固定專案名稱：container／network／volume 都以 mvdis-watch 開頭，不會和主機上其他 compose 專案混在一起
@@ -130,6 +131,23 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     mem_limit: 512m
+
+  # 選用：用 Cloudflare Tunnel 公開儀表板（只有主機往外連，不用開任何對內的 port）。
+  # 預設不啟動；在 .env 設 COMPOSE_PROFILES=tunnel 才會起來。設定步驟見 README 的「公開儀表板」。
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.2
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--config", "/home/nonroot/.cloudflared/config.yml", "run"]
+    volumes:
+      # config.yml 與 Tunnel 憑證（<tunnel id>.json）放在主機上，不進 repo
+      - ${CLOUDFLARED_DIR:-/opt/mvdis-cloudflared}:/home/nonroot/.cloudflared:ro
+    depends_on:
+      api: { condition: service_started }
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
 volumes:
   pgdata:

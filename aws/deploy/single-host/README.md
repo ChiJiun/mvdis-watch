@@ -70,7 +70,7 @@ docker compose logs -f scheduler   # 每分鐘有 dispatcher 的 dispatched 和 
 
 > **一台主機只能跑一份 scheduler。** 不要 `docker compose up --scale scheduler=2`，也不要在同一台主機用不同目錄或專案名稱再起一份這個 compose，否則每分鐘的官網請求會加倍。compose 已固定專案名稱為 `mvdis-watch`，在別的目錄執行 `docker compose up` 會接管同一組容器，不會另起一份。
 
-從自己的電腦看儀表板：
+從自己的電腦看儀表板（要公開給別人看，見下面的「公開儀表板」）：
 
 ```bash
 ssh -N -L 8200:127.0.0.1:8200 <使用者>@<主機>
@@ -123,6 +123,47 @@ curl -s -o /dev/null -w "%{http_code}\n" https://mvdis-live-proxy.<子網域>.wo
 
 > 注意：這等於讓 Cloudflare 代替海外主機向官網發請求。官網若明確禁止自動查詢或加上驗證機制，應停止使用（見提案的「不在範圍內」）。
 
+## 公開儀表板（Cloudflare Tunnel，選用）
+
+compose 裡的 `tunnel` 服務（profile `tunnel`，預設不啟動）會用 cloudflared 把 `api` 公開到你在 Cloudflare 上的網域。
+只有主機往外連，不用開任何對內的 port，也不用改主機的防火牆。
+
+需要一個由 Cloudflare 代管 DNS 的網域。以下在主機上執行，`<hostname>` 換成要用的網址（例如 `mvdis.example.com`）：
+
+```bash
+# cloudflared 映像以 uid 65532 執行，資料夾要給它寫入權限
+sudo mkdir -p /opt/mvdis-cloudflared
+sudo chown 65532:65532 /opt/mvdis-cloudflared && sudo chmod 700 /opt/mvdis-cloudflared
+CF="docker run --rm -it -v /opt/mvdis-cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared:2026.10.2"
+
+$CF tunnel login                              # 用瀏覽器開印出的網址，選網域並按「授權」，會寫入 cert.pem
+$CF tunnel create mvdis-watch                 # 印出 tunnel id，並寫入 <tunnel id>.json（Tunnel 的憑證）
+$CF tunnel route dns mvdis-watch <hostname>   # 建立指向這個 Tunnel 的 CNAME
+```
+
+接著寫 `/opt/mvdis-cloudflared/config.yml`（`<tunnel id>` 換成上面印出的 id）：
+
+```yaml
+tunnel: <tunnel id>
+credentials-file: /home/nonroot/.cloudflared/<tunnel id>.json
+ingress:
+  - hostname: <hostname>
+    service: http://api:8080
+  - service: http_status:404
+```
+
+```bash
+sudo chown 65532:65532 /opt/mvdis-cloudflared/config.yml
+# 在 .env 加上 COMPOSE_PROFILES=tunnel（之後一般的 docker compose up -d／down 都會包含它）
+echo 'COMPOSE_PROFILES=tunnel' >> .env
+docker compose up -d tunnel
+docker compose logs tunnel | grep Registered   # 應該有 4 條 Registered tunnel connection
+```
+
+- `cert.pem` 可以管理這個網域底下的 Tunnel 和 DNS，`<tunnel id>.json` 可以冒用這條 Tunnel，兩個都不要外流，也不要進 repo。
+- 公開之後任何人都能看儀表板、呼叫 `/api/*`。API 是唯讀的，但沒有限速；負載在這台主機的 api 和 Postgres 上。要限制誰能看，請在 Cloudflare Zero Trust 為這個網址加一個 Access 應用程式。
+- 停用：`docker compose stop tunnel`，並把 `.env` 的 `COMPOSE_PROFILES=tunnel` 拿掉。
+
 ## 只用 Replay 模擬站驗證（不打官網）
 
 ```bash
@@ -154,5 +195,5 @@ docker compose exec postgres psql -U mvdis -d mvdis -c \
 ## 沒有涵蓋的部分
 
 - Discord 推播：notifier 是 Lambda handler，單機版沒有 SNS → Lambda 的觸發。需要時可以另寫一個輪詢 `mvdis-notify-local` 的小程式呼叫同一個 handler。
-- HTTPS 與對外開放：刻意不做。要公開請另外規劃（例如 Cloudflare Tunnel），並先確認主機的防火牆政策。
+- HTTPS 與對外開放：主機本身不開 port，也不處理 HTTPS。要公開請用上面「公開儀表板」的 Cloudflare Tunnel。
 - 高可用、擴展與 CloudWatch 指標：這些是 AWS 版要量測的對象（E1–E4），單機版只驗證功能。
