@@ -2,9 +2,19 @@
 #
 #   CloudFront(prefix list) ──80──▶ ALB-SG ──8080──▶ API-SG ─┐
 #                                                            ├─5432──▶ RDS-SG
-#                                     Worker-SG ─────────────┘
+#                                     Worker-SG ─────────────┤
+#                                    Bastion-SG ─────────────┘
 #                                     Worker-SG ──8080──▶ Replay-SG
+#                                    Bastion-SG ──8080──▶ Replay-SG
 #   admin_cidr ──22──▶ Bastion-SG ──22──▶ API-SG / Worker-SG / Replay-SG
+#
+# Bastion 同時是實驗主機：E1 佇列端、E2、E3 的腳本在 Bastion 上跑，要能直接連 RDS（清 replay schema、
+# 讀量測結果）與 Replay 站（/admin/*）。worker 不能當跳板，因為 E2／E3 會把它關掉。
+# Bastion 本身仍然只收 admin_cidr 的 22。
+#
+# 注意：aws_security_group 的 description 改了會 ForceNew（SG 名稱固定，只能先刪後建，已部署時會卡在 ENI），
+# 所以 RDS-SG／Replay-SG 的 description 維持原文；實際允許的來源以下方的 ingress rule 為準
+#（rds_from_bastion、replay_from_bastion 是後來加的）。
 
 data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
   name = "com.amazonaws.global.cloudfront.origin-facing"
@@ -125,6 +135,17 @@ resource "aws_vpc_security_group_ingress_rule" "rds_from_app" {
   referenced_security_group_id = each.value
 }
 
+# 實驗主機（Bastion）直接連 RDS：migration、清 replay schema、讀 scan_task_log 量測結果。
+# 這放寬了「RDS 只收應用層」的原設計；Bastion 只收 admin_cidr 的 SSH，所以實際上等同管理者可經 SSH tunnel 連 DB。
+resource "aws_vpc_security_group_ingress_rule" "rds_from_bastion" {
+  security_group_id            = aws_security_group.rds.id
+  description                  = "PostgreSQL from Bastion (migration and experiments)"
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+  referenced_security_group_id = aws_security_group.bastion.id
+}
+
 # --- Replay ---
 
 resource "aws_vpc_security_group_ingress_rule" "replay_from_worker" {
@@ -134,6 +155,16 @@ resource "aws_vpc_security_group_ingress_rule" "replay_from_worker" {
   from_port                    = 8080
   to_port                      = 8080
   referenced_security_group_id = aws_security_group.worker.id
+}
+
+# 實驗腳本從 Bastion 呼叫 Replay 站的 /healthz 與 /admin/*（stats、reset、events、延遲設定）
+resource "aws_vpc_security_group_ingress_rule" "replay_from_bastion" {
+  security_group_id            = aws_security_group.replay.id
+  description                  = "HTTP 8080 from Bastion (experiment scripts)"
+  ip_protocol                  = "tcp"
+  from_port                    = 8080
+  to_port                      = 8080
+  referenced_security_group_id = aws_security_group.bastion.id
 }
 
 # --- 對外：應用層與 Bastion 需要經 NAT 連外（Secrets Manager、SQS、SNS、dnf、監理服務網）。

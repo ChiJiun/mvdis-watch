@@ -2,8 +2,8 @@
 
 連線優先序和 worker 相同（契約第 3 節）：DATABASE_URL > DB_HOST + DB_SECRET_ARN。
 RDS 在 private subnet：執行這些函式的主機必須連得到 `rds_endpoint:5432`。
-預定的實驗主機是 bastion，但 main 目前的 infra 只讓 API-SG、Worker-SG 連 RDS（`rds_from_app`），
-要等 infra 後續 PR 新增 `rds_from_bastion`（以及 Replay 用的 `replay_from_bastion`）規則才行；詳見 aws/experiments/README.md「執行環境」。
+實驗主機是 bastion：aws/infra/security_groups.tf 的 `rds_from_bastion` 讓 Bastion-SG 連 RDS 5432
+（Replay 則是 `replay_from_bastion`）；詳見 aws/experiments/README.md「執行環境」。
 
 資料隔離（契約 §7.3）：replay 任務的 slot／slot_event／scan_log 在 `replay` schema；
 實驗只讀寫 `replay.*`，任務量測讀 `public.scan_task_log WHERE target = 'replay'`。
