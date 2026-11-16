@@ -55,6 +55,18 @@ const SLOT_COLS = `license_type, dmv_no, exam_date, sec_key, quota, signup_avail
 /** 原型 slot_event 表的欄位；不含 AWS 版新增的 task_id、run_id */
 const EVENT_COLS = 'id, license_type, dmv_no, exam_date, sec_key, kind, old_quota, new_quota, at';
 
+/**
+ * 同一個 `at` 的事件怎麼排。worker 同一輪寫入的事件 `at` 都相同，所以這個順序在正式資料裡天天都會碰到。
+ * 原型的 `ORDER BY at DESC` 走 idx_event_at／idx_event_kind_at／idx_event_station，
+ * SQLite 索引內同鍵值依 rowid 遞增，實際結果是 id ASC；這裡明寫出來讓兩邊一致。
+ */
+const EVENT_TIE = 'id ASC';
+
+const INT4_MAX = 2147483647;
+
+/** 原型是 `Math.min(Math.max(n, 1), max)`；另外取整數，`LIMIT` 內插的一定是整數 */
+const clampLimit = (n: number, max: number) => Math.trunc(Math.min(Math.max(n, 1), max));
+
 const SCAN_LOG_COLS = 'license_type, dmv_no, last_ok, last_error, last_error_at, rows_seen, empty_streak, duration_ms';
 
 export type AvailableFilter = {
@@ -73,7 +85,10 @@ export async function queryAvailable(db: Queryable, f: AvailableFilter, dmvNosFo
     binds.push(v);
     return `$${binds.length}`;
   };
-  const where: string[] = [`quota >= ${bind(Math.max(1, f.minQuota ?? 1))}`];
+  // quota 是整數，`quota >= 2.5` 等於 `quota >= 3`；上限夾在 int4 範圍內，超大值不會讓 Postgres 溢位成 500
+  // （原型的 SQLite 是 64 位元整數，超大值只會查不到東西）
+  const minQuota = Math.min(Math.ceil(Math.max(1, f.minQuota ?? 1)), INT4_MAX);
+  const where: string[] = [`quota >= ${bind(minQuota)}`];
 
   if (f.dmvNo) where.push(`dmv_no = ${bind(f.dmvNo)}`);
   else if (dmvNosForCounty && dmvNosForCounty.length) where.push(`dmv_no = ANY(${bind(dmvNosForCounty)}::text[])`);
@@ -82,7 +97,7 @@ export async function queryAvailable(db: Queryable, f: AvailableFilter, dmvNosFo
   if (f.to) where.push(`exam_date <= ${bind(f.to)}::date`);
   if (f.weekendOnly) where.push('is_weekend');
 
-  const limit = Math.min(Math.max(f.limit ?? 300, 1), 1000);
+  const limit = clampLimit(f.limit ?? 300, 1000);
   // 原型只排 exam_date、quota；同分時 SQLite 的順序本來就沒有保證，這裡補上主鍵讓結果穩定
   const sql = `SELECT ${SLOT_COLS} FROM slot WHERE ${where.join(' AND ')}
     ORDER BY exam_date ASC, quota DESC, license_type COLLATE "C", dmv_no COLLATE "C", sec_key COLLATE "C"
@@ -103,10 +118,10 @@ export async function queryOverview(db: Queryable, today: string) {
 }
 
 export async function queryEvents(db: Queryable, kind: string | null, limit: number): Promise<EventRow[]> {
-  const lim = Math.min(Math.max(limit, 1), 500);
+  const lim = clampLimit(limit, 500);
   const r = kind
-    ? await db.query<EventRow>(`SELECT ${EVENT_COLS} FROM slot_event WHERE kind = $1 ORDER BY at DESC, id DESC LIMIT ${lim}`, [kind])
-    : await db.query<EventRow>(`SELECT ${EVENT_COLS} FROM slot_event ORDER BY at DESC, id DESC LIMIT ${lim}`);
+    ? await db.query<EventRow>(`SELECT ${EVENT_COLS} FROM slot_event WHERE kind = $1 ORDER BY at DESC, ${EVENT_TIE} LIMIT ${lim}`, [kind])
+    : await db.query<EventRow>(`SELECT ${EVENT_COLS} FROM slot_event ORDER BY at DESC, ${EVENT_TIE} LIMIT ${lim}`);
   return r.rows;
 }
 
@@ -158,9 +173,9 @@ export async function queryStationSlots(db: Queryable, dmvNo: string, from: stri
 
 /** 該站最近的事件流，給統計與歷史列表用。走 idx_event_station。 */
 export async function queryStationEvents(db: Queryable, dmvNo: string, since: number, limit = 5000): Promise<EventRow[]> {
-  const lim = Math.min(Math.max(limit, 1), 10000);
+  const lim = clampLimit(limit, 10000);
   const r = await db.query<EventRow>(
-    `SELECT ${EVENT_COLS} FROM slot_event WHERE dmv_no = $1 AND at >= $2 ORDER BY at DESC, id DESC LIMIT ${lim}`,
+    `SELECT ${EVENT_COLS} FROM slot_event WHERE dmv_no = $1 AND at >= $2 ORDER BY at DESC, ${EVENT_TIE} LIMIT ${lim}`,
     [dmvNo, since],
   );
   return r.rows;

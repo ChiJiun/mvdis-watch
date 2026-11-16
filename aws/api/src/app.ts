@@ -62,12 +62,15 @@ export function todayIso(now: number = Date.now()): string {
   return new Date(now + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-/** 原型的寫法是 `q.get(x) ? Number(q.get(x)) : 預設值`；這裡另外擋掉 NaN，免得拼出 `LIMIT NaN` */
+/**
+ * 原型的寫法是 `q.get(x) ? Number(q.get(x)) : 預設值`；這裡另外擋掉 NaN，免得拼出 `LIMIT NaN`。
+ * ±Infinity（例如 `limit=1e400`）照原型保留，交給 queries.ts 夾到上下限。
+ */
 function numParam(q: URLSearchParams, name: string, fallback: number): number {
   const raw = q.get(name);
   if (!raw) return fallback;
   const n = Number(raw);
-  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+  return Number.isNaN(n) ? fallback : n;
 }
 
 function isIsoDate(s: string): boolean {
@@ -252,14 +255,19 @@ function robots(origin: string): Reply {
 }
 
 /**
- * 對外網址。Host 標頭是呼叫端可以亂填的，而它會被寫進 HTML 與 sitemap、再被 CloudFront 快取，
- * 所以只接受長得像主機名稱的值，其他一律退回 localhost。部署時建議直接設 PUBLIC_ORIGIN。
+ * 對外網址，會被寫進 HTML 與 sitemap、再被 CloudFront 快取（sitemap 快取一天）。
+ * **部署時應設 PUBLIC_ORIGIN**（CloudFront 網域）：CloudFront 預設不把瀏覽器的 Host 轉給 ALB，
+ * 沒設的話這裡只拿得到 ALB 的網域。
+ *
+ * 沒設時的退路只看 Host，不信任 X-Forwarded-Host——它不在 CloudFront 的快取鍵裡，
+ * 若 origin request policy 轉送了它，任何人都能用一個請求把假網域寫進快取。
+ * Host 也只接受長得像主機名稱的值，其他一律退回 localhost。
  */
 function originOf(req: IncomingMessage, configured?: string): string {
   if (configured) return configured.replace(/\/+$/, '');
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.split(',')[0].trim();
   const proto = first(req.headers['x-forwarded-proto']) === 'https' ? 'https' : 'http';
-  const host = first(req.headers['x-forwarded-host']) || first(req.headers.host) || '';
+  const host = first(req.headers.host) || '';
   return `${proto}://${/^[A-Za-z0-9.-]+(:\d{1,5})?$/.test(host) ? host : 'localhost'}`;
 }
 

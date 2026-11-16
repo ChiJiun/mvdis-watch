@@ -20,7 +20,8 @@
 - **lastTick**：原型讀 `scan_state.last_tick`，AWS 版沒有這張表，改成 `scan_log` 的 `last_ok`／`last_error_at` 最大值
   （最近一次有組合被掃的時間）。理由見 `src/queries.ts` 的 `queryLastTick`。
 - **參數驗證**：`from`／`to` 不是合法的 `YYYY-MM-DD` 時回 400（Postgres 的 DATE 不能拿任意字串比較）；
-  `limit`／`minQuota` 不是數字時用預設值，不會變成 500。
+  `limit`／`minQuota` 不是數字時用預設值；`minQuota` 超過 int4 範圍時夾到上限（查不到東西），不會變成 500。
+- **事件同一個 `at` 時的順序**：明寫 `id ASC`，和原型 SQLite 走索引的實際順序相同。
 - **錯誤訊息**：未預期錯誤回 `{"error":"internal error"}`，細節只寫 log。
 - **快取**：原型在 Worker 內用 Cache API；這裡只帶標頭，快取交給 CloudFront，行程內不快取。
 
@@ -35,7 +36,7 @@
 | `DB_POOL_MAX` | `10` | 每台的連線池上限。RDS 連線數 ≈ 台數 × 這個值，要和 RDS 機型的 `max_connections` 一起算 |
 | `DB_SSL` | `DB_HOST` 路徑 `no-verify`；`DATABASE_URL` 路徑 `disable` | `disable`／`no-verify`／`verify`。RDS PostgreSQL 15 起預設 `rds.force_ssl=1`，不開 SSL 會連不上 |
 | `DB_STATEMENT_TIMEOUT_MS` | `10000` | 單一查詢逾時 |
-| `PUBLIC_ORIGIN` | 從 `Host`／`X-Forwarded-*` 推 | 對外網址（例如 CloudFront 網域），寫進每站頁面的 canonical 與 sitemap |
+| `PUBLIC_ORIGIN` | 從 `Host` 與 `X-Forwarded-Proto` 推 | 對外網址，寫進每站頁面的 canonical 與 sitemap。**部署時應設成 `https://<CloudFront 網域>`**：CloudFront 預設不轉送瀏覽器的 Host，沒設只會拿到 ALB 網域。`X-Forwarded-Host` 一律不信任 |
 
 後面五個是 api 自己的選用變數，不設也能跑，所以沒有寫進 CONTRACTS.md。
 

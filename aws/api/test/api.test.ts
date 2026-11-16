@@ -87,8 +87,9 @@ function buildFixture() {
       sec_key: pick(['M:1', 'h:zz']), kind,
       old_quota: kind === 'new' ? null : pick([-1, 3, 7]),
       new_quota: kind === 'gone' ? null : pick([-1, 2, 9]),
-      // at 全部不同（間隔約 3.1 小時，最早約 41 天前），涵蓋「30 天內／外」兩種
-      at: NOW - k * 11_160_000 - 7_000,
+      // 每 3 筆共用一個 at，模擬 worker 同一輪寫入的事件（正式資料就是這樣），用來比對同分時的順序；
+      // 每輪間隔約 9.3 小時，最早約 41 天前，涵蓋「30 天內／外」兩種
+      at: NOW - Math.floor(k / 3) * 33_480_000 - 7_000,
       task_id: rand() < 0.5 ? crypto.randomUUID() : null,
       run_id: rand() < 0.2 ? 'exp-1' : null,
     });
@@ -170,7 +171,7 @@ function seedSqlite(db: DatabaseSync, fx: ReturnType<typeof buildFixture>) {
   for (const e of fx.events) ev.run(e.license_type, e.dmv_no, e.exam_date, e.sec_key, e.kind, e.old_quota, e.new_quota, e.at);
   const sl = db.prepare('INSERT INTO scan_log VALUES (?,?,?,?,?,?,?,?)');
   for (const l of fx.scanLog) sl.run(l.license_type, l.dmv_no, l.last_ok, l.last_error, l.last_error_at, l.rows_seen, l.empty_streak, l.duration_ms);
-  // 原型的 last_tick 存在 scan_state；AWS 版從 scan_task_log 推導，兩邊應該得到同一個值
+  // 原型的 last_tick 存在 scan_state；AWS 版從 scan_log 推導，兩邊應該得到同一個值
   db.prepare('INSERT INTO scan_state (key, value) VALUES (?, ?)').run('last_tick', String(fx.lastTick));
 }
 
@@ -286,6 +287,13 @@ describe('有資料時和原型一致', () => {
     '/api/available?limit=2000',
     '/api/available?limit=0',
     '/api/available?minQuota=-4&licenseType=A',
+    '/api/available?minQuota=99999999999',
+    '/api/available?minQuota=2.5',
+    '/api/available?limit=1e400',
+    '/api/available?limit=-1e400',
+    '/api/events?limit=1e400',
+    '/api/events?limit=7',
+    '/api/events?kind=filled&limit=4',
     '/api/overview',
     '/api/events',
     '/api/events?kind=released&limit=10',
@@ -329,6 +337,9 @@ describe('有資料時和原型一致', () => {
     assert.match(row.exam_date, /^\d{4}-\d{2}-\d{2}$/, 'DATE 轉回 YYYY-MM-DD 字串');
     assert.ok([0, 1].includes(row.signup_available), 'BOOLEAN 轉回 0／1');
     assert.equal(typeof row.first_seen, 'number', 'BIGINT 轉回 number');
+
+    const ev = JSON.parse((await askApi('/api/events')).text).rows;
+    assert.ok(ev.some((e: any, i: number) => i > 0 && e.at === ev[i - 1].at), '事件有同一個 at 的情況，排序同分時的順序有被比到');
 
     const st = JSON.parse((await askApi('/api/station?dmvNo=41')).text);
     assert.ok(st.slots.some((r: any) => r.quota === -1), '每站頁面含額滿場次');
@@ -430,10 +441,10 @@ describe('AWS 版自己的行為', () => {
 
   test('每站頁面：Host 標頭只接受主機名稱，其餘退回 localhost；PUBLIC_ORIGIN 優先', async () => {
     const { request } = await import('node:http');
-    const get = (host: string) =>
+    const get = (host: string, extra: Record<string, string> = {}, path = '/station/41') =>
       new Promise<string>((resolve, reject) => {
         const u = new URL(base);
-        request({ host: u.hostname, port: u.port, path: '/station/41', headers: { Host: host } }, (res) => {
+        request({ host: u.hostname, port: u.port, path, headers: { Host: host, ...extra } }, (res) => {
           let s = '';
           res.on('data', (c) => (s += c));
           res.on('end', () => resolve(s));
@@ -443,6 +454,14 @@ describe('AWS 版自己的行為', () => {
     const evil = await get('x"><script>alert(1)</script>');
     assert.ok(!evil.includes('<script>alert(1)'));
     assert.match(evil, /href="http:\/\/localhost\/station\/41"/);
+
+    // X-Forwarded-Host 不在 CloudFront 的快取鍵裡，不能信任；X-Forwarded-Proto 只決定 http／https
+    const fwd = { 'X-Forwarded-Host': 'evil.example', 'X-Forwarded-Proto': 'https' };
+    const page = await get('mvdis.example.org', fwd);
+    assert.ok(!page.includes('evil.example'));
+    assert.match(page, /href="https:\/\/mvdis\.example\.org\/station\/41"/);
+    const map = await get('mvdis.example.org', fwd, '/sitemap.xml');
+    assert.ok(!map.includes('evil.example') && map.includes('https://mvdis.example.org/station/41'));
 
     const s = createServer(createHandler({ getDb: async () => pool, publicOrigin: 'https://watch.example.org/' }));
     await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
