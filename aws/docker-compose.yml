@@ -1,0 +1,24 @@
+# 本機開發用：Postgres 取代 RDS，LocalStack 取代 SQS／SNS／S3／Secrets Manager。
+# 啟動：docker compose -f aws/docker-compose.yml up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mvdis
+      POSTGRES_PASSWORD: mvdis
+      POSTGRES_DB: mvdis
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/schema.pg.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: sqs,sns,s3,secretsmanager
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      # worker 線負責的建立腳本（CONTRACTS.md §1）；資料夾不存在時 Docker 會建一個空資料夾
+      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
