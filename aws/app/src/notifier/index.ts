@@ -61,6 +61,8 @@ export async function getWebhookUrl(env: Env): Promise<string> {
   return cachedWebhook;
 }
 
+export const DISCORD_TIMEOUT_MS = 10_000;
+
 export type NotifyDeps = { webhookUrl: () => Promise<string>; fetchFn: typeof fetch; now: () => Date };
 
 export async function notify(event: AnyEvent, deps: NotifyDeps): Promise<{ sent: number; events: number }> {
@@ -70,6 +72,8 @@ export async function notify(event: AnyEvent, deps: NotifyDeps): Promise<{ sent:
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: buildDiscordBody(events, deps.now()),
+    // Lambda 逾時前要能收尾；卡住就當失敗，交給重試
+    signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
   });
   if (!res.ok) {
     // 丟例外讓 Lambda 重試（SNS 非同步呼叫會重試兩次；SQS 觸發則回到佇列）

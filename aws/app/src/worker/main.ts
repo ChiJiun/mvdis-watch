@@ -6,7 +6,7 @@ import { PublishBatchCommand, SNSClient } from '@aws-sdk/client-sns';
 import { SQSClient } from '@aws-sdk/client-sqs';
 import type { ReleasedEvent } from '../../../shared/contracts.ts';
 import { awsEndpoint, awsRegion, intOr, required, type Env } from '../config.ts';
-import { createPool } from '../db.ts';
+import { createPool, DEFAULT_SCHEMAS } from '../db.ts';
 import { runConsumer } from './consumer.ts';
 import { detectIdentity } from './instance.ts';
 import { stdoutSink } from './metrics.ts';
@@ -63,13 +63,15 @@ export async function main(env: Env = process.env as Env) {
   const log = (o: Record<string, unknown>) => console.log(JSON.stringify({ ts: Date.now(), ...o }));
   const deps: Deps = {
     pool,
+    schemas: DEFAULT_SCHEMAS,
     fetchFn: fetch,
     putObject: s3Putter(s3, required(env, 'RAW_BUCKET')),
     publishReleased: snsPublisher(sns, required(env, 'EVENT_TOPIC_ARN')),
     metrics: stdoutSink,
     log,
     identity,
-    urls: { liveUrl: env.MVDIS_LIVE_URL || undefined, replayUrl: env.REPLAY_BASE_URL || undefined },
+    // MVDIS_LIVE_URL 必填（契約固定為官網，infra 一定會設）；本機忘了設就直接起不來，不會默默打官網
+    urls: { liveUrl: required(env, 'MVDIS_LIVE_URL'), replayUrl: env.REPLAY_BASE_URL || undefined },
     fetchTimeoutMs: intOr(env.FETCH_TIMEOUT_MS, 20_000),
     now: Date.now,
   };

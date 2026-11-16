@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto';
 import { hotCombos, coldCombos, type Combo } from '../../../../src/catalogue.ts';
 import { CONTRACT_VERSION, LIVE_MAX_TASKS_PER_MINUTE, type ScanTask, type ScanTier } from '../../../shared/contracts.ts';
-import { intOr, type Env } from '../config.ts';
+import type { Env } from '../config.ts';
 
 export const HOT = hotCombos();
 export const COLD = coldCombos();
@@ -24,16 +24,25 @@ export type DispatchConfig = { hotPerTick: number; coldPerTick: number };
 
 export class DispatchConfigError extends Error {}
 
+/** 未設定（或空字串）回預設值；有設就必須是非負整數字串，否則丟 DispatchConfigError */
+function perTick(env: Env, name: 'HOT_PER_TICK' | 'COLD_PER_TICK', fallback: number): number {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  if (!/^\d+$/.test(raw.trim())) throw new DispatchConfigError(`${name}=${JSON.stringify(raw)} 不是非負整數，拒絕執行`);
+  return Number(raw.trim());
+}
+
 /**
- * 讀 HOT_PER_TICK／COLD_PER_TICK。空值、非數字、負數退回預設值；
- * 兩者合計超過 14 時丟 DispatchConfigError —— 契約規定 dispatcher 要拒絕執行、不送任何任務。
+ * 讀 HOT_PER_TICK／COLD_PER_TICK（契約 §3）：未設定用預設 11、3；必須是非負整數且合計 1–14，
+ * 否則丟 DispatchConfigError —— 契約規定 dispatcher 要拒絕執行、不送任何任務。
  */
 export function dispatchConfig(env: Env): DispatchConfig {
-  const hot = intOr(env.HOT_PER_TICK, DEFAULT_HOT_PER_TICK);
-  const cold = intOr(env.COLD_PER_TICK, DEFAULT_COLD_PER_TICK);
-  if (hot + cold > LIVE_MAX_TASKS_PER_MINUTE) {
+  const hot = perTick(env, 'HOT_PER_TICK', DEFAULT_HOT_PER_TICK);
+  const cold = perTick(env, 'COLD_PER_TICK', DEFAULT_COLD_PER_TICK);
+  const total = hot + cold;
+  if (total < 1 || total > LIVE_MAX_TASKS_PER_MINUTE) {
     throw new DispatchConfigError(
-      `HOT_PER_TICK(${hot}) + COLD_PER_TICK(${cold}) = ${hot + cold} 超過每分鐘上限 ${LIVE_MAX_TASKS_PER_MINUTE}，拒絕執行`,
+      `HOT_PER_TICK(${hot}) + COLD_PER_TICK(${cold}) = ${total}，必須在 1–${LIVE_MAX_TASKS_PER_MINUTE} 之間，拒絕執行`,
     );
   }
   return { hotPerTick: hot, coldPerTick: cold };

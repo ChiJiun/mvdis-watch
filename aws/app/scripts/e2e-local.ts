@@ -35,6 +35,7 @@ import {
   GetQueueAttributesCommand,
   ReceiveMessageCommand,
   SendMessageBatchCommand,
+  SendMessageCommand,
   SQSClient,
   type Message,
 } from '@aws-sdk/client-sqs';
@@ -132,7 +133,9 @@ async function main() {
   check('npm run migrate 的 migrate() 對 compose 的 Postgres 套用成功', true);
   const db = new pg.Client({ connectionString: DATABASE_URL });
   await db.connect();
-  await db.query('TRUNCATE slot, slot_event, scan_log, scan_task_log');
+  await db.query(
+    'TRUNCATE slot, slot_event, scan_log, scan_task_log, replay.slot, replay.slot_event, replay.scan_log',
+  );
 
   // === LocalStack 資源（每次用新名字，不互相干擾）===
   const suffix = Date.now().toString(36);
@@ -327,9 +330,23 @@ async function main() {
     total += 2;
     await waitDrained(total, '第 4 輪');
     const relReplay = await db.query(
-      "SELECT count(*)::int AS n FROM slot_event WHERE kind = 'released' AND run_id = 'e2e-replay'",
+      "SELECT count(*)::int AS n FROM replay.slot_event WHERE kind = 'released' AND run_id = 'e2e-replay'",
     );
-    check('第 3、4 輪：replay 任務的 released 帶 run_id', relReplay.rows[0].n === 2, relReplay.rows[0]);
+    check('第 3、4 輪：replay 任務的 released 寫進 replay schema、帶 run_id', relReplay.rows[0].n === 2, relReplay.rows[0]);
+    // 契約 §7.3：replay 的資料不能進正式的表
+    const iso = (
+      await db.query(
+        `SELECT (SELECT count(*)::int FROM public.slot_event WHERE run_id IS NOT NULL) AS pub_replay_events,
+                (SELECT count(*)::int FROM replay.slot) AS replay_slots,
+                (SELECT count(*)::int FROM replay.scan_log) AS replay_logs,
+                (SELECT count(*)::int FROM public.scan_task_log WHERE target = 'replay') AS replay_tasks`,
+      )
+    ).rows[0];
+    check(
+      '§7.3：replay 的 slot／slot_event／scan_log 只在 replay schema，scan_task_log 共用 public',
+      iso.pub_replay_events === 0 && iso.replay_slots === two.length * 2 && iso.replay_logs === two.length && iso.replay_tasks === 4,
+      iso,
+    );
 
     // --- 資料庫內容 ---
     const tl = await db.query(
@@ -337,14 +354,21 @@ async function main() {
     );
     check('scan_task_log 每列都記了 worker_id 與 az', tl.rows[0].n === tl.rows[0].tagged, tl.rows[0]);
     const slots = await db.query('SELECT count(*)::int AS n FROM slot');
-    check('slot：每個組合 2 個場次', slots.rows[0].n === combos.length * 2, slots.rows[0]);
+    check('slot：每個組合 2 個場次（public 不含 replay 的資料）', slots.rows[0].n === combos.length * 2, slots.rows[0]);
 
     // --- S3 ---
     const list = async (prefix: string) =>
       (await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }))).Contents ?? [];
     const raws = await list('raw/');
     const evs = await list('events/');
-    check('S3 raw/：每次成功抓取一個 .html.gz', raws.length === total, { raw: raws.length, tasks: total });
+    const okTasks = new Set(
+      (await db.query<{ task_id: string }>("SELECT task_id FROM scan_task_log WHERE outcome = 'ok'")).rows.map((r) => r.task_id),
+    );
+    check(
+      'S3 raw/：每次成功抓取一個 <taskId>.html.gz（契約 s3Keys.raw）',
+      raws.length === total && raws.every((o) => okTasks.has(o.Key!.split('/').at(-1)!.replace('.html.gz', ''))),
+      { raw: raws.length, tasks: total, sample: raws[0]?.Key },
+    );
     check('S3 events/：有事件的任務各一個 .jsonl', evs.length > 0 && evs.every((o) => o.Key!.endsWith('.jsonl')), {
       events: evs.length,
       sample: evs[0]?.Key,
@@ -402,6 +426,10 @@ async function main() {
     const rej = mk(combos[0], 'live', 'exp-should-be-rejected');
     const stale = mk(combos[1], 'live', null, Date.now() - 200_000);
     await enqueue([rej, stale]);
+    // 契約 §5 步驟 1：taskId 不是 UUID 的訊息直接刪，不寫 DB、不進 DLQ
+    await sqs.send(
+      new SendMessageCommand({ QueueUrl: scanQueueUrl, MessageBody: JSON.stringify({ ...mk(combos[0], 'live', null), taskId: 'not-a-uuid' }) }),
+    );
     total += 2;
     await waitDrained(total, '§4.2');
     const guard = await db.query<{ task_id: string; outcome: string }>(
@@ -416,6 +444,14 @@ async function main() {
         [...hits.values()].reduce((a, b) => a + b, 0) === hitsBefore,
       Object.fromEntries(byId),
     );
+    const dlqAfter = Number(
+      (await sqs.send(new GetQueueAttributesCommand({ QueueUrl: dlq.QueueUrl, AttributeNames: ['ApproximateNumberOfMessages'] })))
+        .Attributes!.ApproximateNumberOfMessages,
+    );
+    check('§5：taskId 不是 UUID 的訊息被直接刪掉，不進 DLQ、不寫 DB', dlqAfter === 0 && (await finishedCount()) === total, {
+      dlq: dlqAfter,
+      finished: await finishedCount(),
+    });
 
     // --- janitor（dist/janitor.zip）：所有測試場次都在未來、事件都是剛產生的，應該什麼都不刪 ---
     process.env.DATABASE_URL = DATABASE_URL;

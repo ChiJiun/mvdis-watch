@@ -14,7 +14,6 @@ import {
   type ScanTarget,
   type ScanTask,
 } from '../../../shared/contracts.ts';
-import { DEFAULT_MVDIS_BASE_URL } from '../config.ts';
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
@@ -26,6 +25,8 @@ export function isOfficialHost(hostname: string): boolean {
 }
 
 export type Urls = { liveUrl: string | undefined; replayUrl: string | undefined };
+
+const HTTP_PROTOCOLS = new Set(['http:', 'https:']);
 
 export type Verdict = { outcome: 'rejected' | 'stale'; reason: string } | null;
 
@@ -42,28 +43,32 @@ export function preflight(task: ScanTask, now: number, replayUrl: string | undef
   }
   if (task.target === 'replay') {
     if (!replayUrl) return { outcome: 'rejected', reason: 'REPLAY_BASE_URL 未設定，拒絕 replay 任務' };
-    let host: string;
+    let u: URL;
     try {
-      host = new URL(replayUrl).hostname;
+      u = new URL(replayUrl);
     } catch {
       return { outcome: 'rejected', reason: `REPLAY_BASE_URL 不是合法網址：${replayUrl}` };
     }
-    if (isOfficialHost(host)) return { outcome: 'rejected', reason: `REPLAY_BASE_URL 指向官網（${host}），拒絕 replay 任務` };
+    if (!HTTP_PROTOCOLS.has(u.protocol)) return { outcome: 'rejected', reason: `REPLAY_BASE_URL 只能是 http(s)：${u.protocol}` };
+    if (isOfficialHost(u.hostname)) return { outcome: 'rejected', reason: `REPLAY_BASE_URL 指向官網（${u.hostname}），拒絕 replay 任務` };
   }
   return null;
 }
 
 export class TargetGuardError extends Error {}
 
-/** 決定完整網址；replay 指向官網或未設定時丟 TargetGuardError（第二道防線） */
+/** 決定完整網址；replay 指向官網或未設定、live 未設定 MVDIS_LIVE_URL 時丟 TargetGuardError（第二道防線） */
 export function resolveTargetUrl(target: ScanTarget, urls: Urls): URL {
   if (target === 'replay') {
     if (!urls.replayUrl) throw new TargetGuardError('REPLAY_BASE_URL 未設定');
     const u = new URL(MVDIS_PATH, urls.replayUrl);
+    if (!HTTP_PROTOCOLS.has(u.protocol)) throw new TargetGuardError(`REPLAY_BASE_URL 只能是 http(s)：${u.protocol}`);
     if (isOfficialHost(u.hostname)) throw new TargetGuardError(`REPLAY_BASE_URL 指向官網（${u.hostname}）`);
     return u;
   }
-  return new URL(MVDIS_PATH, urls.liveUrl || DEFAULT_MVDIS_BASE_URL);
+  // 沒設定就不抓（fail-closed）：避免本機忘了設 MVDIS_LIVE_URL 時從開發機打官網
+  if (!urls.liveUrl) throw new TargetGuardError('MVDIS_LIVE_URL 未設定，拒絕 live 任務');
+  return new URL(MVDIS_PATH, urls.liveUrl);
 }
 
 export type FetchInput = {

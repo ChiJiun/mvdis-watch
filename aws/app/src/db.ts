@@ -3,7 +3,7 @@
  * 帳密從 Secrets Manager 的 DB_SECRET_ARN 取（JSON `{"username","password"}`）。
  */
 import pg from 'pg';
-import { PG_TYPE_RULES } from '../../shared/contracts.ts';
+import { DB_SCHEMA_BY_TARGET, PG_TYPE_RULES, type ScanTarget } from '../../shared/contracts.ts';
 import { intOr, required, type Env } from './config.ts';
 import { getSecretJson } from './secrets.ts';
 
@@ -17,6 +17,21 @@ export function applyPgTypeRules(): void {
 
 export type Pool = pg.Pool;
 export type PoolClient = pg.PoolClient;
+
+/**
+ * 各 target 的 slot／slot_event／scan_log 所在 schema（契約 §7.3）。正式環境就是 DB_SCHEMA_BY_TARGET；
+ * 測試傳每個測試檔自己的 schema。`live` 那個 schema 同時也放 scan_task_log（正式環境是 public）。
+ */
+export type DbSchemas = Record<ScanTarget, string>;
+export const DEFAULT_SCHEMAS: DbSchemas = { ...DB_SCHEMA_BY_TARGET };
+
+const IDENT_RE = /^[a-z_][a-z0-9_]{0,62}$/;
+
+/** schema 名稱會直接拼進 SQL（SET LOCAL search_path 不能用參數），只接受小寫識別字 */
+export function schemaIdent(name: string): string {
+  if (!IDENT_RE.test(name)) throw new Error(`不合法的 schema 名稱：${name}`);
+  return name;
+}
 
 export async function poolConfig(env: Env, max: number): Promise<pg.PoolConfig> {
   const base: pg.PoolConfig = {

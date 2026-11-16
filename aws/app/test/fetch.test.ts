@@ -21,17 +21,16 @@ test('resolveTargetUrl：replay 用 REPLAY_BASE_URL；沒設或指向官網都�
   assert.throws(() => resolveTargetUrl('replay', R('https://www.mvdis.gov.tw')), TargetGuardError);
   assert.throws(() => resolveTargetUrl('replay', R('HTTPS://WWW.MVDIS.GOV.TW:443/')), TargetGuardError);
   assert.throws(() => resolveTargetUrl('replay', R('http://mvdis.gov.tw./x')), TargetGuardError);
+  assert.throws(() => resolveTargetUrl('replay', R('file:///tmp/x')), TargetGuardError, '只接受 http(s)');
   assert.equal(
     resolveTargetUrl('replay', R('http://replay.internal:8080')).toString(),
     'http://replay.internal:8080/m3-emv-trn/exm/locations',
   );
 });
 
-test('resolveTargetUrl：live 用 MVDIS_LIVE_URL，沒設時預設官網，絕不會用到 REPLAY_BASE_URL', () => {
-  assert.equal(
-    resolveTargetUrl('live', { liveUrl: undefined, replayUrl: 'http://replay.internal:8080' }).toString(),
-    'https://www.mvdis.gov.tw/m3-emv-trn/exm/locations',
-  );
+test('resolveTargetUrl：live 只用 MVDIS_LIVE_URL；沒設就拒絕（fail-closed），絕不會用到 REPLAY_BASE_URL', () => {
+  assert.throws(() => resolveTargetUrl('live', { liveUrl: undefined, replayUrl: 'http://replay.internal:8080' }), TargetGuardError);
+  assert.throws(() => resolveTargetUrl('live', { liveUrl: '', replayUrl: 'http://replay.internal:8080' }), TargetGuardError);
   assert.equal(
     resolveTargetUrl('live', { liveUrl: 'http://127.0.0.1:9999', replayUrl: undefined }).toString(),
     'http://127.0.0.1:9999/m3-emv-trn/exm/locations',
@@ -62,7 +61,7 @@ test('preflight（契約 §4.2）：live 排隊超過 120 秒 → stale；剛好
 
 test('preflight（契約 §4.2）：replay 的 REPLAY_BASE_URL 未設定、壞掉或指向官網 → rejected；replay 不看排隊時間', () => {
   const t = T({ target: 'replay', runId: 'e1' });
-  for (const u of [undefined, '', 'not a url', 'https://www.mvdis.gov.tw', 'http://X.MVDIS.GOV.TW.']) {
+  for (const u of [undefined, '', 'not a url', 'https://www.mvdis.gov.tw', 'http://X.MVDIS.GOV.TW.', 'file:///etc/passwd', 'ftp://10.0.11.20/']) {
     assert.equal(preflight(t, 1_000_000, u)?.outcome, 'rejected', String(u));
   }
   assert.equal(preflight(t, 1_000_000 + 3600_000, 'http://10.0.11.20:8080'), null);

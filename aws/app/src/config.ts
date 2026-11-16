@@ -26,5 +26,3 @@ export function awsRegion(env: Env): string {
 export function awsEndpoint(env: Env): string | undefined {
   return env.AWS_ENDPOINT_URL || undefined;
 }
-
-export const DEFAULT_MVDIS_BASE_URL = 'https://www.mvdis.gov.tw';

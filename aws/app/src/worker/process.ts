@@ -1,28 +1,28 @@
 /**
- * 單一 SQS 訊息的處理流程（契約 §4.2、§5）。SQS 是 at-least-once，同一則訊息可能被重送，
+ * 單一 SQS 訊息的處理流程（契約 §4.2、§4.4、§5、§7.3）。SQS 是 at-least-once，同一則訊息可能被重送，
  * 甚至被兩台同時處理，所以每一步都以 task_id 為準、可以重做：
  *
- *   1. upsert scan_task_log（receive_count = SQS ApproximateReceiveCount），查 committed_at／finished_at
+ *   1. 解析訊息：格式錯誤（JSON、v、taskId 不是 UUID、欄位不合 catalogue）→ 記 log 後直接刪
+ *   2. upsert scan_task_log（receive_count = SQS ApproximateReceiveCount），查 committed_at／finished_at
  *        finished_at 有值            → 已做完，直接刪訊息
- *        committed_at 有值、未 finished → 跳到 5，只補做副作用（不再抓頁面）
- *   2. §4.2 官網保護：live 帶 runId → rejected；live 排隊超過 120 秒 → stale；
- *      replay 而 REPLAY_BASE_URL 未設定或指向官網 → rejected。記錄後刪訊息、不重試
- *   3. 降頻（只套用在 runId = null）：長期沒場次的組合 24 小時內 → skipped
- *   4. 交易外抓頁面、parseSlots；交易內：
- *        FOR UPDATE 鎖 scan_task_log 那一列並重新檢查 committed_at（別台先做完就 rollback、跳到 5）
- *        → pg_advisory_xact_lock 鎖整個組合 → diff → 寫 slot、slot_event、scan_log
+ *        committed_at 有值、未 finished → 跳到 7，只補做副作用（不再抓頁面，不受 §4.2 的 120 秒限制）
+ *   3. §4.2 官網保護：live 帶 runId → rejected；live 排隊超過 120 秒 → stale；
+ *      replay 而 REPLAY_BASE_URL 未設定或指向官網 → rejected
+ *   4. §4.4 降頻（只有 live）：長期沒場次的組合 24 小時內 → skipped
+ *      （3、4 都以 UPDATE … WHERE committed_at IS NULL 記錄後刪訊息、不重試）
+ *   5. 交易外抓頁面、parseSlots
+ *   6. 交易：SET LOCAL search_path = <target 的 schema>, public（replay 寫進 replay schema）
+ *        → FOR UPDATE 鎖 scan_task_log 那一列並重新檢查 committed_at（別台先做完就 rollback、跳到 7）
+ *        → pg_advisory_xact_lock 鎖整個組合
+ *        → 成功：diff → 寫 slot、slot_event、scan_log，outcome=ok
+ *          失敗（HTTP 非 200、逾時、解析失敗）：只寫 scan_log.last_error*，outcome=error
  *        → 寫 committed_at、outcome，提交
- *   5. 副作用：事件從 slot_event WHERE task_id 重建；原始 HTML、事件放 S3；released 發 SNS
- *   6. 寫 finished_at，回傳 deleteMessage=true；呼叫端最後才刪訊息
+ *   7. 副作用：事件從 <schema>.slot_event WHERE task_id 重建；dt = taipeiIsoDate(committed_at)；
+ *      原始 HTML（只有 ok）與事件放 S3；released 發 SNS
+ *   8. 寫 finished_at，回傳 deleteMessage=true；呼叫端最後才刪訊息
  *
- * 步驟 1 與 2 的順序和契約文件相反：先 upsert 才知道這個任務是不是已經提交過。
- * 已提交、只差副作用的任務不會再發 HTTP 請求，所以不必套 §4.2（否則重送時超過 120 秒，
- * 已寫進 DB 的事件就永遠到不了 S3／SNS）。還沒提交的任務一律先過 §4.2 才可能抓頁面。
- *
- * 失敗分兩種：
- *   - 上游錯誤（HTTP 非 200、逾時、解析失敗）：記 scan_log.last_error 與 outcome=error，照樣刪訊息，
- *     交給下一圈重掃（和原型一樣，不在對方噴錯時加重負擔）。
- *   - 基礎設施錯誤（DB、S3、SNS）：不刪訊息，讓 SQS 重送；已提交的任務重送時只補做副作用。
+ * 抓取失敗不靠 SQS 重試（提交後照樣刪訊息），下一輪排程會再抓。
+ * 基礎設施錯誤（DB、S3、SNS）才不刪訊息，讓 SQS 重送；已提交的任務重送時只補做副作用。
  *
  * 所有 IO 都從 deps 注入，測試可以換成假的。
  */
@@ -37,8 +37,8 @@ import {
   type SlotEvent,
   type TaskOutcome,
 } from '../../../shared/contracts.ts';
-import type { Pool, PoolClient } from '../db.ts';
-import { withTransaction } from '../db.ts';
+import type { DbSchemas, Pool, PoolClient } from '../db.ts';
+import { schemaIdent, withTransaction } from '../db.ts';
 import { fetchLocations, preflight, TargetGuardError, type FetchFn, type FetchResult, type Urls } from './fetch.ts';
 import type { WorkerIdentity } from './instance.ts';
 import { emfLine, type MetricsSink } from './metrics.ts';
@@ -50,6 +50,8 @@ export const PRUNE_RECHECK_MS = 24 * 3600 * 1000;
 
 export type Deps = {
   pool: Pool;
+  /** 各 target 的資料 schema（契約 §7.3）；正式環境是 DEFAULT_SCHEMAS */
+  schemas: DbSchemas;
   fetchFn: FetchFn;
   putObject: (key: string, body: Uint8Array | string, contentType: string, contentEncoding?: string) => Promise<void>;
   publishReleased: (events: ReleasedEvent[]) => Promise<void>;
@@ -73,25 +75,29 @@ export type ProcessResult = {
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** 這個任務的 slot／slot_event／scan_log 在哪個 schema */
+const dataSchema = (deps: Deps, task: ScanTask) => schemaIdent(deps.schemas[task.target]);
+
 export async function processMessage(body: string, receiveCount: number, deps: Deps): Promise<ProcessResult> {
+  // === 1. 解析 ===
   let task: ScanTask;
   try {
     task = parseTask(body);
   } catch (e) {
     if (e instanceof InvalidTaskError) {
-      // 不刪：讓它照 maxReceiveCount 進 DLQ，留著給人看
-      deps.log({ level: 'error', msg: 'invalid task', error: e.message, body: body.slice(0, 500) });
-      return { deleteMessage: false, outcome: 'invalid', error: e.message };
+      // 契約 §5 步驟 1：不寫 DB、直接刪（留著只會一直重試到進 DLQ）
+      deps.log({ level: 'error', msg: 'invalid task, deleted', error: e.message, body: body.slice(0, 500) });
+      return { deleteMessage: true, outcome: 'invalid', error: e.message };
     }
     throw e;
   }
 
-  // === 1. 登記任務 ===
+  // === 2. 登記任務、冪等判斷 ===
   const state = await upsertTask(deps.pool, task, deps.now(), receiveCount, deps.identity);
   if (state.finished) return { deleteMessage: true, outcome: 'duplicate', taskId: task.taskId };
-  if (state.committed) return finishSideEffects(task, null, null, deps, 'resumed');
+  if (state.committed) return finishSideEffects(task, null, deps, 'resumed');
 
-  // === 2. 官網保護 ===
+  // === 3. 官網保護 ===
   const verdict = preflight(task, deps.now(), deps.urls.replayUrl);
   if (verdict) {
     deps.log({ level: 'warn', msg: verdict.outcome, taskId: task.taskId, target: task.target, reason: verdict.reason });
@@ -99,13 +105,13 @@ export async function processMessage(body: string, receiveCount: number, deps: D
     return { deleteMessage: true, outcome: verdict.outcome, taskId: task.taskId, error: verdict.reason };
   }
 
-  // === 3. 降頻（實驗灌入的任務要逐筆處理，量測才準） ===
-  if (task.runId === null && (await shouldSkip(deps.pool, task, deps.now()))) {
+  // === 4. 降頻（只有 live；replay 實驗量測的是每一則任務） ===
+  if (task.target === 'live' && (await shouldSkip(deps, task, deps.now()))) {
     await finishWithoutScan(deps, task, 'skipped', null);
     return { deleteMessage: true, outcome: 'skipped', taskId: task.taskId };
   }
 
-  // === 4a. 抓取（交易外，避免長時間持有鎖） ===
+  // === 5. 抓取（交易外，避免長時間持有鎖） ===
   const t0 = deps.now();
   let fetched: FetchResult | null = null;
   let slots: Slot[] | null = null;
@@ -124,7 +130,7 @@ export async function processMessage(body: string, receiveCount: number, deps: D
       deps.fetchFn,
     );
     if (fetched.status !== 200) throw new Error(`HTTP ${fetched.status}`);
-    slots = parseSlots(fetched.html, task.licenseType, task.dmvNo);
+    slots = dedupeSlots(parseSlots(fetched.html, task.licenseType, task.dmvNo));
   } catch (e) {
     if (e instanceof TargetGuardError) {
       // preflight 已經擋過，走到這裡代表兩道防線判斷不一致；一樣不發請求、記 rejected
@@ -137,8 +143,13 @@ export async function processMessage(body: string, receiveCount: number, deps: D
   const fetchedAt = deps.now();
   const durationMs = fetchedAt - t0;
 
-  // === 4b. 交易 ===
+  // === 6. 交易 ===
+  const schema = dataSchema(deps, task);
+  const liveSchema = schemaIdent(deps.schemas.live);
   const committed = await withTransaction(deps.pool, async (c) => {
+    // 契約 §7.3：SQL 寫不帶 schema 的表名；replay 的 slot／slot_event／scan_log 落在 replay schema，
+    // scan_task_log 只有 public（測試時是 live 用的 schema）有，照樣找得到
+    await c.query(`SET LOCAL search_path = ${schema}, ${liveSchema}`);
     const row = await c.query<{ committed_at: number | null }>(
       'SELECT committed_at FROM scan_task_log WHERE task_id = $1 FOR UPDATE',
       [task.taskId],
@@ -166,48 +177,68 @@ export async function processMessage(body: string, receiveCount: number, deps: D
 
   if (!committed) {
     // 同一個 taskId 被另一台搶先提交；這次抓的結果丟掉，只確保副作用有做
-    return finishSideEffects(task, null, null, deps, 'resumed');
+    return finishSideEffects(task, null, deps, 'resumed');
   }
 
-  const releasedCount = slots === null ? 0 : await countReleased(deps.pool, task.taskId);
+  const releasedCount = slots === null ? 0 : await countReleased(deps, task);
   emitMetrics(deps, task, durationMs, slots === null ? 1 : 0, releasedCount, slots === null ? 'error' : 'ok');
 
-  // === 5、6. 副作用與完成 ===
-  return finishSideEffects(task, fetched?.html ?? null, fetchedAt, deps, slots === null ? 'error' : 'ok', upstreamError);
+  // === 7、8. 副作用與完成（outcome=error 時不寫 raw） ===
+  return finishSideEffects(task, slots === null ? null : fetched!.html, deps, slots === null ? 'error' : 'ok', upstreamError);
+}
+
+/**
+ * 同一頁出現重複的 (exam_date, sec_key) 時保留最後一筆（和原型 SQLite 逐列覆寫的結果一樣）。
+ * 不去重的話，多列 INSERT … ON CONFLICT 會報「cannot affect row a second time」，訊息變成毒訊息。
+ */
+export function dedupeSlots(slots: Slot[]): Slot[] {
+  const byKey = new Map<string, Slot>();
+  for (const s of slots) {
+    const k = `${s.examDate}|${s.secKey}`;
+    byKey.delete(k); // 重新插入，讓順序跟著最後一筆
+    byKey.set(k, s);
+  }
+  return byKey.size === slots.length ? slots : [...byKey.values()];
 }
 
 /**
  * 補做（或第一次做）副作用，全部成功才寫 finished_at。
  * 失敗時回傳 deleteMessage=false：訊息留著讓 SQS 重送，重送時 committed_at 已有值，只會走到這裡。
+ * html 只在這次抓取成功（outcome=ok）時傳入；補做時已沒有 HTML，raw 略過。
  */
 async function finishSideEffects(
   task: ScanTask,
   html: string | null,
-  fetchedAt: number | null,
   deps: Deps,
   outcome: ProcessResult['outcome'],
   error: string | null = null,
 ): Promise<ProcessResult> {
-  const events = await loadEvents(deps.pool, task.taskId);
+  const tl = await deps.pool.query<{ committed_at: number | null; finished_at: number | null }>(
+    'SELECT committed_at, finished_at FROM scan_task_log WHERE task_id = $1',
+    [task.taskId],
+  );
+  const row = tl.rows[0];
+  // 另一台已經把副作用做完（兩台同時處理同一個 taskId），不要再發一次 SNS
+  if (row?.finished_at != null) return { deleteMessage: true, outcome: 'duplicate', taskId: task.taskId };
+  if (row?.committed_at == null) throw new Error(`task ${task.taskId} 尚未提交，不能做副作用`);
+  // 契約 §5 步驟 7：dt 一律用 committed_at，補做時也是同一個值，物件鍵不會變
+  const dt = taipeiIsoDate(row.committed_at);
+
+  const events = await loadEvents(deps.pool, task.taskId, dataSchema(deps, task));
   const released: ReleasedEvent[] = events
     .filter((e) => e.kind === 'released')
     .map((e) => ({ ...e, kind: 'released' as const, target: task.target }));
 
   const side: Array<Promise<unknown>> = [];
-  if (html !== null && fetchedAt !== null) {
+  if (html !== null) {
     side.push(
-      deps.putObject(
-        s3Keys.raw(taipeiIsoDate(fetchedAt), task.licenseType, task.dmvNo, fetchedAt),
-        gzipSync(html),
-        'text/html; charset=utf-8',
-        'gzip',
-      ),
+      deps.putObject(s3Keys.raw(dt, task.licenseType, task.dmvNo, task.taskId), gzipSync(html), 'text/html; charset=utf-8', 'gzip'),
     );
   }
   if (events.length) {
     side.push(
       deps.putObject(
-        s3Keys.events(taipeiIsoDate(events[0].at), task.taskId),
+        s3Keys.events(dt, task.taskId),
         events.map((e) => JSON.stringify(e)).join('\n') + '\n',
         'application/x-ndjson',
       ),
@@ -290,14 +321,13 @@ export async function upsertTask(
   return { committed: row.committed_at != null, finished: row.finished_at != null };
 }
 
-/** rejected／stale／skipped：沒有抓頁面、沒有交易，直接標記完成 */
+/** rejected／stale／skipped：沒有抓頁面、沒有交易，直接標記完成（契約 §4.2 的記法） */
 async function finishWithoutScan(deps: Deps, task: ScanTask, outcome: TaskOutcome, error: string | null) {
-  const now = deps.now();
   await deps.pool.query(
     `UPDATE scan_task_log
         SET outcome = $2, error = $3, finished_at = $4, worker_id = $5, az = $6
-      WHERE task_id = $1 AND committed_at IS NULL AND finished_at IS NULL`,
-    [task.taskId, outcome, error, now, deps.identity.workerId, deps.identity.az],
+      WHERE task_id = $1 AND committed_at IS NULL`,
+    [task.taskId, outcome, error, deps.now(), deps.identity.workerId, deps.identity.az],
   );
 }
 
@@ -315,10 +345,10 @@ async function markCommitted(
   );
 }
 
-async function shouldSkip(pool: Pool, task: ScanTask, now: number): Promise<boolean> {
-  const r = await pool.query<{ skip: number }>(
+async function shouldSkip(deps: Deps, task: ScanTask, now: number): Promise<boolean> {
+  const r = await deps.pool.query<{ skip: number }>(
     `SELECT (empty_streak >= $3 AND last_ok > $4) AS skip
-       FROM scan_log WHERE license_type = $1 AND dmv_no = $2`,
+       FROM ${dataSchema(deps, task)}.scan_log WHERE license_type = $1 AND dmv_no = $2`,
     [task.licenseType, task.dmvNo, PRUNE_AFTER_EMPTY, now - PRUNE_RECHECK_MS],
   );
   return r.rows[0]?.skip === 1; // §7.1：bool → 1/0
@@ -337,11 +367,11 @@ type EventDbRow = {
   run_id: string | null;
 };
 
-/** 契約 §5 步驟 5：事件一律從 slot_event 重建，補做時才和第一次完全相同 */
-export async function loadEvents(pool: Pool, taskId: string): Promise<SlotEvent[]> {
+/** 契約 §5 步驟 7：事件一律從 <schema>.slot_event 重建，補做時才和第一次完全相同 */
+export async function loadEvents(pool: Pool, taskId: string, schema: string): Promise<SlotEvent[]> {
   const r = await pool.query<EventDbRow>(
     `SELECT license_type, dmv_no, exam_date, sec_key, kind, old_quota, new_quota, at, task_id, run_id
-       FROM slot_event WHERE task_id = $1 ORDER BY id`,
+       FROM ${schemaIdent(schema)}.slot_event WHERE task_id = $1 ORDER BY id`,
     [taskId],
   );
   return r.rows.map((e) => ({
@@ -358,16 +388,16 @@ export async function loadEvents(pool: Pool, taskId: string): Promise<SlotEvent[
   }));
 }
 
-async function countReleased(pool: Pool, taskId: string): Promise<number> {
-  const r = await pool.query<{ n: number }>(
-    "SELECT count(*) AS n FROM slot_event WHERE task_id = $1 AND kind = 'released'",
-    [taskId],
+async function countReleased(deps: Deps, task: ScanTask): Promise<number> {
+  const r = await deps.pool.query<{ n: number }>(
+    `SELECT count(*) AS n FROM ${dataSchema(deps, task)}.slot_event WHERE task_id = $1 AND kind = 'released'`,
+    [task.taskId],
   );
   return r.rows[0]?.n ?? 0;
 }
 
 /**
- * 交易內、已持有組合的 advisory lock：diff → 寫 slot、slot_event、scan_log。
+ * 交易內、已設好 search_path 並持有組合的 advisory lock：diff → 寫 slot、slot_event、scan_log。
  * 回傳要寫進 scan_task_log.error 的備註（正常為 null）。
  */
 export async function applyScan(
@@ -377,7 +407,8 @@ export async function applyScan(
   fetchedAt: number,
   durationMs: number,
 ): Promise<string | null> {
-  // 比這份快照更新的結果已經寫進去了（兩台處理同一組合、晚抓的先提交）→ 不能用舊資料蓋掉
+  // 比這份快照更新的結果已經寫進去了（兩台處理同一組合、晚抓的先提交）→ 不能用舊資料蓋掉。
+  // 比的是各台 worker 的本機時間，依賴 EC2 的 NTP（Amazon Time Sync）；見 README。
   const log = await c.query<{ last_ok: number | null }>(
     'SELECT last_ok FROM scan_log WHERE license_type = $1 AND dmv_no = $2',
     [task.licenseType, task.dmvNo],

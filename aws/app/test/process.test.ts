@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { PRUNE_AFTER_EMPTY, processMessage, type Deps } from '../src/worker/process.ts';
-import { LIVE_TASK_MAX_AGE_MS, type ReleasedEvent, type ScanTask } from '../../shared/contracts.ts';
+import { LIVE_TASK_MAX_AGE_MS, taipeiIsoDate, type ReleasedEvent, type ScanTask } from '../../shared/contracts.ts';
+import type { DbSchemas } from '../src/db.ts';
 import { createTestPool, TEST_DATABASE_URL } from './helpers/pg.ts';
 import { daysFromNow, locationsHtml, type FixtureRow } from './helpers/fixture.ts';
 
@@ -15,6 +16,8 @@ const skip = !TEST_DATABASE_URL ? 'TEST_DATABASE_URL 未設定，略過需要 Po
 
 describe('worker processMessage（Postgres）', { skip }, () => {
   let pool: pg.Pool;
+  let schemas: DbSchemas;
+  let R: string; // replay 任務的資料 schema（正式環境的 replay）
   let drop: () => Promise<void>;
   let clock: number;
   let html: string;
@@ -28,13 +31,14 @@ describe('worker processMessage（Postgres）', { skip }, () => {
   const D2 = daysFromNow(11);
 
   before(async () => {
-    ({ pool, drop } = await createTestPool());
+    ({ pool, schemas, drop } = await createTestPool());
+    R = schemas.replay;
   });
   after(async () => {
     await drop?.();
   });
   beforeEach(async () => {
-    await pool.query('TRUNCATE slot, slot_event, scan_log, scan_task_log');
+    await pool.query(`TRUNCATE slot, slot_event, scan_log, scan_task_log, ${R}.slot, ${R}.slot_event, ${R}.scan_log`);
     clock = Date.now();
     status = 200;
     html = locationsHtml([]);
@@ -46,6 +50,7 @@ describe('worker processMessage（Postgres）', { skip }, () => {
 
   const deps = (over: Partial<Deps> = {}): Deps => ({
     pool,
+    schemas,
     fetchFn: (async (url: string | URL | Request) => {
       fetchCalls.push(String(url));
       clock += 25; // 模擬抓取耗時
@@ -73,7 +78,7 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     lv1: '60',
     dmvNo: '63',
     tier: 'hot',
-    target: 'replay',
+    target: 'live',
     runId: null,
     enqueuedAt: clock - 1000,
     ...over,
@@ -95,7 +100,7 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     const t = task();
     const r = await run(t, deps(), 2);
     assert.deepEqual([r.outcome, r.deleteMessage, r.events], ['ok', true, 2]);
-    assert.deepEqual(fetchCalls, ['http://replay.test:8080/m3-emv-trn/exm/locations']);
+    assert.deepEqual(fetchCalls, ['http://live.test:8080/m3-emv-trn/exm/locations']);
 
     const slots = await pool.query('SELECT exam_date, sec_key, quota, signup_available, first_seen FROM slot ORDER BY sec_key');
     assert.deepEqual(
@@ -122,10 +127,12 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     assert.equal(tl.receive_count, 2, 'receive_count 取自 SQS ApproximateReceiveCount');
     assert.ok(tl.committed_at && tl.finished_at && tl.finished_at >= tl.committed_at);
 
+    // 契約 §5 步驟 7：dt = taipeiIsoDate(committed_at)，raw 的檔名是 taskId
+    const dt = taipeiIsoDate(tl.committed_at);
     const raw = puts.find((p) => p.key.startsWith('raw/'));
-    assert.match(raw!.key, /^raw\/dt=\d{4}-\d{2}-\d{2}\/license=3\/dmv=63\/\d+\.html\.gz$/);
+    assert.equal(raw!.key, `raw/dt=${dt}/license=3/dmv=63/${t.taskId}.html.gz`);
     const events = puts.find((p) => p.key.startsWith('events/'));
-    assert.match(events!.key, new RegExp(`^events/dt=\\d{4}-\\d{2}-\\d{2}/${t.taskId}\\.jsonl$`));
+    assert.equal(events!.key, `events/dt=${dt}/${t.taskId}.jsonl`);
     const lines = String(events!.body).trim().split('\n').map((l) => JSON.parse(l));
     assert.equal(lines.length, 2);
     assert.equal(lines[0].taskId, t.taskId);
@@ -134,7 +141,7 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     assert.equal(published.length, 0, 'new 不推 SNS');
 
     assert.equal(metrics.length, 1);
-    assert.deepEqual([metrics[0].Tier, metrics[0].Target, metrics[0].ScanErrors, metrics[0].ScanDurationMs], ['hot', 'replay', 0, 25]);
+    assert.deepEqual([metrics[0].Tier, metrics[0].Target, metrics[0].ScanErrors, metrics[0].ScanDurationMs], ['hot', 'live', 0, 25]);
   });
 
   test('額滿 → 有位：記 released、只發這一筆到 SNS，沒變的不寫', async () => {
@@ -148,14 +155,14 @@ describe('worker processMessage（Postgres）', { skip }, () => {
       { date: D1, session: '上午', group: 1, quota: 2 },
       { date: D1, session: '下午', group: 2, quota: 3 },
     ]);
-    const t2 = task({ runId: 'run-42' });
+    const t2 = task();
     const r = await run(t2);
     assert.deepEqual([r.events, r.released], [1, 1]);
     assert.equal(published.length, 1);
     const p = published[0];
     assert.deepEqual(
       [p.kind, p.target, p.oldQuota, p.newQuota, p.runId, p.taskId, p.examDate],
-      ['released', 'replay', -1, 2, 'run-42', t2.taskId, D1],
+      ['released', 'live', -1, 2, null, t2.taskId, D1],
     );
     const unchanged = (await pool.query("SELECT updated_at FROM slot WHERE sec_key = '2:2'")).rows[0];
     assert.ok(unchanged.updated_at < clock, '沒變動的列不更新');
@@ -196,7 +203,7 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     await run(task());
     clock += 60_000;
     setPage([{ date: D1, session: '上午', group: 1, quota: 4 }]);
-    const t = task({ runId: 'e-resume' });
+    const t = task();
     const logs: Array<Record<string, unknown>> = [];
     const first = await run(
       t,
@@ -221,9 +228,13 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     assert.deepEqual([second.outcome, second.deleteMessage, second.released], ['resumed', true, 1]);
     assert.equal(fetchCalls.length, fetchesBefore, '補做副作用不再打 HTTP');
     assert.equal(published.length, publishedBefore + 1);
-    assert.equal(published.at(-1)!.runId, 'e-resume');
+    assert.equal(published.at(-1)!.taskId, t.taskId);
     const newPuts = puts.slice(putsBefore).map((p) => p.key);
-    assert.deepEqual(newPuts.filter((k) => k.startsWith('events/')).length, 1, '事件檔補寫到 S3');
+    assert.deepEqual(
+      newPuts.filter((k) => k.startsWith('events/')),
+      [`events/dt=${taipeiIsoDate(tl.committed_at)}/${t.taskId}.jsonl`],
+      '事件檔補寫到 S3，dt 用 committed_at（和第一次嘗試同一個鍵）',
+    );
     assert.ok(!newPuts.some((k) => k.startsWith('raw/')), '補做時已沒有 HTML，略過 raw');
     tl = await taskRow(t.taskId);
     assert.ok(tl.finished_at);
@@ -288,6 +299,7 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     }
     assert.equal(fetchCalls.length, 0);
     assert.equal(await count('SELECT count(*) AS n FROM scan_log'), 0, '不污染上游健康度');
+    assert.equal(await count(`SELECT count(*) AS n FROM ${R}.scan_log`), 0);
   });
 
   test('§4.2：replay 任務不受 120 秒限制', async () => {
@@ -295,11 +307,13 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     assert.equal(r.outcome, 'ok');
   });
 
-  test('降頻：長期沒場次的組合 24 小時內跳過、不發請求；實驗任務（有 runId）不跳過', async () => {
-    await pool.query(
-      `INSERT INTO scan_log (license_type, dmv_no, last_ok, rows_seen, empty_streak) VALUES ('3', '63', $1, 0, $2)`,
-      [clock - 3600_000, PRUNE_AFTER_EMPTY],
-    );
+  test('降頻：長期沒場次的組合 24 小時內跳過、不發請求；replay 任務不套用降頻', async () => {
+    for (const s of [schemas.live, R]) {
+      await pool.query(
+        `INSERT INTO ${s}.scan_log (license_type, dmv_no, last_ok, rows_seen, empty_streak) VALUES ('3', '63', $1, 0, $2)`,
+        [clock - 3600_000, PRUNE_AFTER_EMPTY],
+      );
+    }
     const t = task();
     const r = await run(t);
     assert.deepEqual([r.outcome, r.deleteMessage], ['skipped', true]);
@@ -308,9 +322,9 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     assert.equal(tl.outcome, 'skipped');
     assert.ok(tl.finished_at);
 
-    const exp = await run(task({ runId: 'e1' }));
-    assert.equal(exp.outcome, 'ok');
-    assert.equal(fetchCalls.length, 1);
+    const exp = await run(task({ target: 'replay', runId: 'e1' }));
+    assert.equal(exp.outcome, 'ok', 'replay 就算 replay schema 的 scan_log 符合降頻條件也照抓');
+    assert.deepEqual(fetchCalls, ['http://replay.test:8080/m3-emv-trn/exm/locations']);
   });
 
   test('降頻：超過 24 小時就複查；連續空結果會累加 empty_streak', async () => {
@@ -335,6 +349,7 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     assert.deepEqual([tl.outcome, tl.error], ['error', 'HTTP 502']);
     assert.ok(tl.committed_at && tl.finished_at);
     assert.equal(metrics.at(-1)!.ScanErrors, 1);
+    assert.equal(puts.length, 0, 'outcome=error 不寫 raw，也沒有事件');
   });
 
   test('上游錯誤：頁面結構不對（解析失敗）也算 error', async () => {
@@ -357,9 +372,79 @@ describe('worker processMessage（Postgres）', { skip }, () => {
     assert.match((await taskRow(t.taskId)).error, /stale snapshot/);
   });
 
-  test('格式錯誤的訊息不刪，讓它進 DLQ', async () => {
-    const r = await processMessage('{"v":1}', 1, deps());
-    assert.deepEqual([r.outcome, r.deleteMessage], ['invalid', false]);
+  test('格式錯誤的訊息（JSON、v、taskId 不是 UUID）記 log 後直接刪，不寫 DB', async () => {
+    for (const body of ['not json', '{"v":2}', JSON.stringify({ ...task(), taskId: 'not-a-uuid' })]) {
+      const r = await processMessage(body, 1, deps());
+      assert.deepEqual([r.outcome, r.deleteMessage], ['invalid', true], body);
+    }
+    assert.equal(await count('SELECT count(*) AS n FROM scan_task_log'), 0);
+    assert.equal(fetchCalls.length, 0);
+  });
+
+  test('MVDIS_LIVE_URL 未設定時 live 任務記 rejected、不發請求（fail-closed，不會默默打官網）', async () => {
+    const t = task();
+    const r = await run(t, deps({ urls: { liveUrl: undefined, replayUrl: 'http://replay.test:8080' } }));
+    assert.deepEqual([r.outcome, r.deleteMessage], ['rejected', true]);
+    assert.equal(fetchCalls.length, 0);
+    assert.equal((await taskRow(t.taskId)).outcome, 'rejected');
+  });
+
+  test('同一頁出現重複的 (exam_date, sec_key)：保留最後一筆，不會因 ON CONFLICT 變成毒訊息', async () => {
+    setPage([
+      { date: D1, session: '上午', group: 1, quota: 2 },
+      { date: D1, session: '上午', group: 1, quota: 3 },
+    ]);
+    const r = await run(task());
+    assert.deepEqual([r.outcome, r.deleteMessage, r.events], ['ok', true, 1]);
+    assert.deepEqual((await pool.query('SELECT quota FROM slot')).rows, [{ quota: 3 }]);
+  });
+
+  test('§7.3：replay 任務的 slot／slot_event／scan_log 寫進 replay schema，不影響正式資料與 live 的 diff', async () => {
+    setPage([{ date: D1, session: '上午', group: 1, quota: 'full' }]);
+    await run(task()); // live：正式資料記下額滿
+    setPage([{ date: D1, session: '上午', group: 1, quota: 2 }]);
+    clock += 1000;
+    const rp = task({ target: 'replay', runId: 'e3' });
+    const r = await run(rp);
+    assert.deepEqual([r.outcome, r.events, r.released], ['ok', 1, 0], 'replay schema 原本是空的，只會是 new');
+    assert.deepEqual(
+      (await pool.query(`SELECT kind, run_id FROM ${R}.slot_event`)).rows,
+      [{ kind: 'new', run_id: 'e3' }],
+    );
+    assert.equal(await count(`SELECT count(*) AS n FROM ${R}.scan_log`), 1);
+    assert.equal((await taskRow(rp.taskId)).target, 'replay', 'scan_task_log 共用 live 那個 schema');
+
+    // 正式資料沒被 replay 動到：slot 仍是額滿，live 再抓到額滿不會有任何事件
+    assert.deepEqual((await pool.query('SELECT quota FROM slot')).rows, [{ quota: -1 }]);
+    assert.equal(await count('SELECT count(*) AS n FROM slot_event WHERE run_id IS NOT NULL'), 0);
+    setPage([{ date: D1, session: '上午', group: 1, quota: 'full' }]);
+    clock += 1000;
+    const again = await run(task());
+    assert.deepEqual([again.outcome, again.events], ['ok', 0]);
+    assert.equal(published.length, 0, '沒有假的 released');
+  });
+
+  test('§7.3：replay 任務補做副作用時讀 replay schema 的 slot_event', async () => {
+    setPage([{ date: D1, session: '上午', group: 1, quota: 'full' }]);
+    await run(task({ target: 'replay', runId: 'e3' }));
+    setPage([{ date: D1, session: '上午', group: 1, quota: 4 }]);
+    clock += 1000;
+    const t = task({ target: 'replay', runId: 'e3' });
+    const first = await run(
+      t,
+      deps({
+        publishReleased: async () => {
+          throw new Error('sns down');
+        },
+      }),
+    );
+    assert.deepEqual([first.outcome, first.deleteMessage], ['retry', false]);
+    const second = await run(t, deps(), 2);
+    assert.deepEqual([second.outcome, second.released], ['resumed', 1]);
+    assert.deepEqual(
+      [published.at(-1)!.target, published.at(-1)!.runId, published.at(-1)!.taskId],
+      ['replay', 'e3', t.taskId],
+    );
   });
 
   test('資料庫錯誤會丟例外（呼叫端不刪訊息，讓 SQS 重送）', async () => {

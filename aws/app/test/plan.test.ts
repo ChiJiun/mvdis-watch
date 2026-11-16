@@ -78,7 +78,22 @@ test('live 上限：合計超過 14 時拒絕執行（丟 DispatchConfigError）
     assert.throws(() => dispatchConfig(env), DispatchConfigError, JSON.stringify(env));
   }
   assert.deepEqual(dispatchConfig({ HOT_PER_TICK: '14', COLD_PER_TICK: '0' }), { hotPerTick: 14, coldPerTick: 0 });
-  assert.deepEqual(dispatchConfig({ HOT_PER_TICK: '-5', COLD_PER_TICK: 'abc' }), { hotPerTick: 11, coldPerTick: 3 }, '壞值退回預設');
+  assert.deepEqual(dispatchConfig({ HOT_PER_TICK: '0', COLD_PER_TICK: '1' }), { hotPerTick: 0, coldPerTick: 1 });
+  assert.deepEqual(dispatchConfig({ HOT_PER_TICK: '', COLD_PER_TICK: ' 3 ' }), { hotPerTick: 11, coldPerTick: 3 }, '空字串用預設');
+});
+
+test('設定必須是非負整數、合計 1–14，否則拒絕執行（契約 §3），不退回預設值', () => {
+  for (const env of [
+    { HOT_PER_TICK: '0', COLD_PER_TICK: '0' }, // 合計 0
+    { HOT_PER_TICK: '-5' },
+    { COLD_PER_TICK: 'abc' },
+    { HOT_PER_TICK: '10.5' },
+    { HOT_PER_TICK: '1e1' },
+    { HOT_PER_TICK: 'Infinity' },
+    { HOT_PER_TICK: '0x0a' },
+  ]) {
+    assert.throws(() => dispatchConfig(env), DispatchConfigError, JSON.stringify(env));
+  }
 });
 
 test('planTick 的最後防線：就算 config 被繞過，也絕不送出超過 14 則', () => {
