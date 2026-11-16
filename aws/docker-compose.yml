@@ -22,5 +22,5 @@ services:
     ports:
       - "4566:4566"
     volumes:
-      # 啟動完成後建立 queue／topic／bucket／secret（見 aws/localstack/init/ready.d）
+      # worker 線負責的建立腳本（CONTRACTS.md §1）；資料夾不存在時 Docker 會建一個空資料夾
       - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
