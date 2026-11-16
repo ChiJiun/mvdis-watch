@@ -16,8 +16,8 @@ import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import pg from 'pg';
-import { createHandler, todayIso } from '../src/app.ts';
-import { createPool, poolConfigFromEnv } from '../src/db.ts';
+import { createHandler, createHealthCheck, todayIso } from '../src/app.ts';
+import { createPool, createPools, healthPoolConfig, poolConfigFromEnv } from '../src/db.ts';
 
 const ROOT = new URL('../../../', import.meta.url);
 const ADMIN_URL = process.env.TEST_DATABASE_URL || 'postgres://mvdis:mvdis@localhost:5432/mvdis';
@@ -471,7 +471,124 @@ describe('AWS 版自己的行為', () => {
   });
 });
 
+describe('第 2 輪 review 的修正', () => {
+  const listen = async (handler: ReturnType<typeof createHandler>) => {
+    const s = createServer(handler);
+    await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
+    return { s, url: `http://127.0.0.1:${(s.address() as AddressInfo).port}` };
+  };
+
+  test('B1：API 連線池被占滿時，/healthz 走獨立連線仍在 2 秒內回 200', async () => {
+    const { api, health } = await createPools({ DATABASE_URL: testUrl, DB_POOL_MAX: '1', DB_CONNECT_TIMEOUT_MS: '3000' });
+    const held = await api.connect(); // 把 API 連線池唯一的連線占住，模擬壓測時排隊
+    const { s, url } = await listen(createHandler({ getDb: async () => api, healthCheck: createHealthCheck(async () => health, 2000) }));
+    try {
+      const pending = fetch(`${url}/api/meta`); // 會排隊等連線，3 秒後逾時
+      const t0 = Date.now();
+      const h = await fetch(`${url}/healthz`);
+      assert.equal(h.status, 200);
+      assert.ok(Date.now() - t0 < 2000, `healthz 花了 ${Date.now() - t0} ms`);
+      assert.equal((await pending).status, 500, 'API 排隊超過 DB_CONNECT_TIMEOUT_MS 才回 500');
+    } finally {
+      held.release();
+      await new Promise((r) => s.close(r));
+      await Promise.all([api.end(), health.end()]);
+    }
+  });
+
+  test('健康檢查：成功結果快取、同時進來的檢查共用一次查詢、失敗不快取', async () => {
+    let calls = 0;
+    let fail = false;
+    let t = 1000;
+    const db = { query: async () => { calls++; await new Promise((r) => setTimeout(r, 20)); if (fail) throw new Error('down'); return {} as any; } };
+    const check = createHealthCheck(async () => db, 2000, () => t);
+    await Promise.all([check(), check(), check()]);
+    assert.equal(calls, 1, '同時三個檢查只查一次');
+    await check();
+    assert.equal(calls, 1, '2 秒內走快取');
+    t += 2001;
+    fail = true;
+    await assert.rejects(check());
+    await assert.rejects(check());
+    assert.equal(calls, 3, '失敗不快取');
+  });
+
+  test('只讀 public schema：DB 的預設 search_path 被改成 replay 也不會讀到實驗資料', async () => {
+    const admin = new pg.Client({ connectionString: testUrl });
+    await admin.connect();
+    try {
+      await admin.query(`INSERT INTO replay.slot VALUES ('3','41',$1,'X:9',777,true,NULL,NULL,NULL,NULL,false,1,1,1)`, [dateAt(3)]);
+      await admin.query(`INSERT INTO replay.slot_event (license_type,dmv_no,exam_date,sec_key,kind,old_quota,new_quota,at)
+                         VALUES ('3','41',$1,'X:9','released',-1,777,$2)`, [dateAt(3), NOW + 60_000]);
+      await admin.query(`INSERT INTO replay.scan_log VALUES ('3','41',$1,NULL,NULL,1,0,1)`, [NOW + 60_000]);
+      await admin.query(`ALTER DATABASE ${TEST_DB} SET search_path = replay, public`);
+      const p2 = await createPool({ DATABASE_URL: testUrl });
+      const { s, url } = await listen(createHandler({ getDb: async () => p2 }));
+      try {
+        const avail = await (await fetch(`${url}/api/available?minQuota=777`)).json();
+        assert.deepEqual(avail.rows, []);
+        const ev = await (await fetch(`${url}/api/events?limit=1`)).json();
+        assert.notEqual(ev.rows[0]?.sec_key, 'X:9');
+        const meta = await (await fetch(`${url}/api/meta`)).json();
+        assert.equal(meta.lastTick, fx.lastTick, 'lastTick 不被 replay.scan_log 推進');
+      } finally {
+        await new Promise((r) => s.close(r));
+        await p2.end();
+      }
+    } finally {
+      await admin.query(`ALTER DATABASE ${TEST_DB} RESET search_path`);
+      await admin.query('TRUNCATE replay.slot, replay.slot_event, replay.scan_log');
+      await admin.end();
+    }
+  });
+
+  test('含 NUL 的文字參數照原型回空陣列，不是 500', async () => {
+    for (const path of ['/api/slots?licenseType=%00&dmvNo=41', '/api/events?kind=%00', '/api/available?dmvNo=%00', '/api/available?licenseType=3%00']) {
+      const r = await askApi(path);
+      assert.equal(r.status, 200, path);
+      assert.deepEqual(JSON.parse(r.text).rows, [], path);
+    }
+  });
+
+  test('年份 0000 回 400；absolute-form 壞網址回 400', async () => {
+    for (const q of ['from=0000-01-01', 'to=0000-12-31']) assert.equal((await askApi(`/api/available?${q}`)).status, 400, q);
+    const { connect } = await import('node:net');
+    const u = new URL(base);
+    const raw = await new Promise<string>((resolve, reject) => {
+      const sock = connect(Number(u.port), u.hostname, () => sock.end('GET http://[/api/meta HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'));
+      let s = '';
+      sock.on('data', (c) => (s += c));
+      sock.on('end', () => resolve(s));
+      sock.on('error', reject);
+    });
+    assert.match(raw, /^HTTP\/1\.1 400/);
+  });
+
+  test('弱 ETag 與多值 If-None-Match 都回 304；204／304 不帶 Content-Length', async () => {
+    const etag = (await askApi('/style.css')).headers.get('etag')!;
+    for (const inm of [`W/${etag}`, `"nope", ${etag}`, '*']) {
+      const r = await fetch(`${base}/style.css`, { headers: { 'If-None-Match': inm } });
+      assert.equal(r.status, 304, inm);
+      assert.equal(r.headers.get('content-length'), null);
+    }
+    const o = await fetch(`${base}/api/meta`, { method: 'OPTIONS' });
+    assert.equal(o.status, 204);
+    assert.equal(o.headers.get('content-length'), null);
+  });
+});
+
 describe('連線設定', () => {
+  test('每條連線固定 search_path=public 與 DateStyle=ISO；連線等待逾時可設定', async () => {
+    const c = await poolConfigFromEnv({ DATABASE_URL: 'x', DB_CONNECT_TIMEOUT_MS: '1500' });
+    assert.equal(c.options, '-c search_path=public -c DateStyle=ISO');
+    assert.equal(c.connectionTimeoutMillis, 1500);
+    assert.equal((await poolConfigFromEnv({ DATABASE_URL: 'x' })).connectionTimeoutMillis, 5000);
+    const h = healthPoolConfig(c);
+    assert.equal(h.max, 1);
+    assert.equal(h.options, c.options);
+    assert.ok((h.connectionTimeoutMillis ?? 0) <= 2000);
+  });
+
   test('DATABASE_URL 優先；連線池大小與 SSL 可設定', async () => {
     const c = await poolConfigFromEnv({ DATABASE_URL: 'postgres://u:p@h/db', DB_HOST: 'ignored', DB_POOL_MAX: '25' });
     assert.equal(c.connectionString, 'postgres://u:p@h/db');

@@ -73,15 +73,44 @@ function numParam(q: URLSearchParams, name: string, fallback: number): number {
   return Number.isNaN(n) ? fallback : n;
 }
 
+/** 合法的 `YYYY-MM-DD`；年份 0000 擋掉，Postgres 的 DATE 沒有西元 0 年 */
 function isIsoDate(s: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || s.startsWith('0000')) return false;
   const d = new Date(`${s}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
+/**
+ * Postgres 的 TEXT 不能含 NUL（直接報錯 22021 → 500）；原型的 SQLite 可以，只是比對不到任何列。
+ * 參數裡有 NUL 時就照原型的結果回空陣列，不送進資料庫。
+ */
+const hasNul = (...vals: Array<string | null | undefined>) => vals.some((v) => v?.includes('\0'));
+
+/**
+ * 健康檢查：用 getDb 拿到的連線跑 `SELECT 1`。成功結果快取 cacheMs 毫秒；
+ * 同時進來的多個檢查共用同一次查詢，不會在負載高時自己再疊一層壓力。失敗不快取，下一次立刻重查。
+ */
+export function createHealthCheck(getDb: () => Promise<Queryable>, cacheMs = 0, now: () => number = Date.now) {
+  let okUntil = 0;
+  let inflight: Promise<void> | null = null;
+  return (): Promise<void> => {
+    if (now() < okUntil) return Promise.resolve();
+    inflight ??= (async () => {
+      const db = await getDb();
+      await db.query('SELECT 1');
+      okUntil = now() + cacheMs;
+    })().finally(() => {
+      inflight = null;
+    });
+    return inflight;
+  };
+}
+
 export type AppOptions = {
-  /** 取得資料庫連線池；第一次呼叫才建立（AWS 上要先讀 Secrets Manager） */
+  /** 取得 API 查詢用的資料庫連線池；第一次呼叫才建立（AWS 上要先讀 Secrets Manager） */
   getDb: () => Promise<Queryable>;
+  /** /healthz 用的檢查；沒給就用 getDb 的連線池、不快取（正式環境由 server.ts 給獨立連線池版本） */
+  healthCheck?: () => Promise<void>;
   /** 對外網址，給每站頁面的 canonical／og:url 與 sitemap 用；沒設就從請求標頭推 */
   publicOrigin?: string;
   now?: () => number;
@@ -137,6 +166,8 @@ async function publicApi(p: string, q: URLSearchParams, db: Queryable, now: numb
       if (v && !isIsoDate(v)) return publicJson({ error: `${name} 需為 YYYY-MM-DD` }, 400);
     }
 
+    if (hasNul(q.get('dmvNo'), q.get('licenseType'))) return publicJson({ rows: [], at: now });
+
     const rows = await queryAvailable(
       db,
       {
@@ -159,6 +190,7 @@ async function publicApi(p: string, q: URLSearchParams, db: Queryable, now: numb
   }
 
   if (p === '/api/events') {
+    if (hasNul(q.get('kind'))) return publicJson({ rows: [], at: now });
     const rows = await queryEvents(db, q.get('kind'), numParam(q, 'limit', 80));
     return publicJson({ rows, at: now });
   }
@@ -167,6 +199,7 @@ async function publicApi(p: string, q: URLSearchParams, db: Queryable, now: numb
     const licenseType = q.get('licenseType');
     const dmvNo = q.get('dmvNo');
     if (!licenseType || !dmvNo) return publicJson({ error: '需要 licenseType 與 dmvNo' }, 400);
+    if (hasNul(licenseType, dmvNo)) return publicJson({ rows: [], at: now });
     return publicJson({ rows: await queryCombo(db, licenseType, dmvNo), at: now });
   }
 
@@ -206,7 +239,9 @@ async function publicApi(p: string, q: URLSearchParams, db: Queryable, now: numb
 function staticFile(name: string, req: IncomingMessage, maxAge = PUBLIC_TTL): Reply {
   const f = STATIC[name];
   const headers = { 'Content-Type': f.type, 'Cache-Control': `public, max-age=${maxAge}`, ETag: f.etag };
-  if (req.headers['if-none-match'] === f.etag) return { status: 304, headers, body: '' };
+  // CloudFront 壓縮時會把 ETag 改成弱 ETag（W/"…"），瀏覽器也可能一次帶多個；比對時都要認得
+  const inm = (req.headers['if-none-match'] ?? '').split(',').map((t) => t.trim().replace(/^W\//, ''));
+  if (inm.includes(f.etag) || inm.includes('*')) return { status: 304, headers, body: '' };
   return { status: 200, headers, body: f.body };
 }
 
@@ -256,8 +291,8 @@ function robots(origin: string): Reply {
 
 /**
  * 對外網址，會被寫進 HTML 與 sitemap、再被 CloudFront 快取（sitemap 快取一天）。
- * **部署時應設 PUBLIC_ORIGIN**（CloudFront 網域）：CloudFront 預設不把瀏覽器的 Host 轉給 ALB，
- * 沒設的話這裡只拿得到 ALB 的網域。
+ * **部署時應設 PUBLIC_ORIGIN**（`https://<CloudFront 網域>`）：CloudFront→ALB 走 http，
+ * X-Forwarded-Proto 會是 http；Host 是 CloudFront 還是 ALB 的網域取決於快取／origin request policy。
  *
  * 沒設時的退路只看 Host，不信任 X-Forwarded-Host——它不在 CloudFront 的快取鍵裡，
  * 若 origin request policy 轉送了它，任何人都能用一個請求把假網域寫進快取。
@@ -274,7 +309,13 @@ function originOf(req: IncomingMessage, configured?: string): string {
 /* ---------- 路由 ---------- */
 
 async function route(req: IncomingMessage, opts: AppOptions): Promise<Reply> {
-  const url = new URL(req.url ?? '/', 'http://localhost');
+  let url: URL;
+  try {
+    url = new URL(req.url ?? '/', 'http://localhost');
+  } catch {
+    // 例如 absolute-form 的壞網址 `GET http://[/api/meta`
+    return text('Bad request', 400);
+  }
   const p = url.pathname;
   const q = url.searchParams;
   const isGet = req.method === 'GET' || req.method === 'HEAD';
@@ -284,8 +325,7 @@ async function route(req: IncomingMessage, opts: AppOptions): Promise<Reply> {
   // ALB 健康檢查：連得到 DB 才算健康，否則讓 ALB 把這台摘掉
   if (p === '/healthz') {
     try {
-      const db = await opts.getDb();
-      await db.query('SELECT 1');
+      await (opts.healthCheck ?? defaultHealthCheck(opts))();
       return json({ ok: true });
     } catch (e) {
       console.error('healthz: db unavailable:', e instanceof Error ? e.message : e);
@@ -319,17 +359,40 @@ async function route(req: IncomingMessage, opts: AppOptions): Promise<Reply> {
   return text('Not found', 404);
 }
 
+const defaultChecks = new WeakMap<AppOptions, () => Promise<void>>();
+function defaultHealthCheck(opts: AppOptions) {
+  let check = defaultChecks.get(opts);
+  if (!check) defaultChecks.set(opts, (check = createHealthCheck(opts.getDb)));
+  return check;
+}
+
+/**
+ * 錯誤只記一行。過載時每個 500 都會進來，pg 的錯誤物件印出來有二十幾行，
+ * stderr 接 pipe（systemd journal）時是同步寫，會反過來卡住 event loop。
+ */
+function logFailure(req: IncomingMessage, e: unknown) {
+  const err = e as { code?: string; message?: string };
+  const url = (req.url ?? '').slice(0, 300);
+  console.error(`${req.method} ${url} failed: ${err?.code ?? '-'} ${err?.message ?? String(e)}`);
+}
+
 export function createHandler(opts: AppOptions) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     let reply: Reply;
     try {
       reply = await route(req, opts);
     } catch (e) {
-      console.error(`${req.method} ${req.url} failed:`, e);
+      logFailure(req, e);
       reply = json({ error: 'internal error' }, 500);
+    }
+    // 204 不得帶 Content-Length（RFC 9110 §8.6）；304 也沒有內容，交給 Node 處理
+    if (reply.status === 204 || reply.status === 304) {
+      res.writeHead(reply.status, reply.headers);
+      res.end();
+      return;
     }
     const body = Buffer.from(reply.body, 'utf8');
     res.writeHead(reply.status, { ...reply.headers, 'Content-Length': String(body.length) });
-    res.end(req.method === 'HEAD' || reply.status === 204 || reply.status === 304 ? undefined : body);
+    res.end(req.method === 'HEAD' ? undefined : body);
   };
 }
