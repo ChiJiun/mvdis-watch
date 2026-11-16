@@ -217,9 +217,11 @@ function main() {
   const region = env.AWS_REGION || 'us-east-1';
   const endpoint = env.AWS_ENDPOINT_URL || undefined;
   // AWS SDK v3 預設沒有請求逾時；LocalStack 卡住時要讓請求失敗，而不是讓 scheduler 靜靜停住。
-  // requestTimeout 預設只會記警告，要加 throwOnRequestTimeout 才會真的中止請求（SDK 會再重試）。
+  // requestTimeout 預設只會記警告，要加 throwOnRequestTimeout 才會真的中止請求。
   const requestHandler = { requestTimeout: 10_000, connectionTimeout: 3_000, throwOnRequestTimeout: true };
-  const sqs = new SQSClient({ region, endpoint, requestHandler });
+  // SQS 不讓 SDK 自動重試：逾時的 SendMessageBatch 可能其實已經送達，重試會讓同一批進佇列兩次，
+  // 兩份同時被處理時同一分鐘會抓到 14 次以上。失敗時改由下一輪處理（派送失敗會冷卻一輪；積壓查詢失敗就跳過）。
+  const sqs = new SQSClient({ region, endpoint, requestHandler, maxAttempts: 1 });
   const s3 = new S3Client({ region, endpoint, forcePathStyle: !!endpoint, requestHandler });
   const queueUrl = env.SCAN_QUEUE_URL;
   if (dispatchEnabled && !queueUrl) throw new Error('DISPATCH_ENABLED=1 時必須設定 SCAN_QUEUE_URL');

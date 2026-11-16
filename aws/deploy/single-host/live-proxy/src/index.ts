@@ -7,7 +7,7 @@
  * 只做最小的事，避免變成開放代理：
  *   - 只接受 ALLOWED_IPS 裡的來源 IP（CF-Connecting-IP）；沒設定就全部拒絕（fail-closed）
  *   - 只轉發到 https://www.mvdis.gov.tw 的查詢端點（固定路徑），只允許 GET／POST
- *   - 只轉送必要的標頭，POST body 上限 4 KB，不轉送 cookie
+ *   - 只轉送必要的標頭，POST body 上限 4 KB，不轉送 cookie 與 query
  * 每分鐘的請求量由 VM 上的 scheduler 控制（契約 §3：每分鐘最多 14 則），這裡不另外限速。
  *
  * 部署（ALLOWED_IPS 不寫進 repo）：
@@ -60,12 +60,18 @@ export default {
     }
     headers.set('referer', ORIGIN + MVDIS_PATH);
 
-    const upstream = await fetch(ORIGIN + MVDIS_PATH + url.search, {
-      method: req.method,
-      headers,
-      body,
-      redirect: 'follow',
-    });
+    // 不轉送 query：worker 從不帶 query，上游網址固定為常數
+    let upstream: Response;
+    try {
+      upstream = await fetch(ORIGIN + MVDIS_PATH, {
+        method: req.method,
+        headers,
+        body,
+        redirect: 'follow',
+      });
+    } catch {
+      return text(502, 'upstream error');
+    }
     return new Response(upstream.body, {
       status: upstream.status,
       headers: { 'content-type': upstream.headers.get('content-type') ?? 'text/html; charset=utf-8' },
