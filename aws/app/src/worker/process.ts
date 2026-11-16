@@ -7,17 +7,21 @@
  *        finished_at 有值            → 已做完，直接刪訊息
  *        committed_at 有值、未 finished → 跳到 7，只補做副作用（不再抓頁面，不受 §4.2 的 120 秒限制）
  *   3. §4.2 官網保護：live 帶 runId → rejected；live 排隊超過 120 秒 → stale；
- *      replay 而 REPLAY_BASE_URL 未設定或指向官網 → rejected
+ *      replay 而 REPLAY_BASE_URL 未設定或指向官網 → rejected；
+ *      replay 而 replay schema 缺表（to_regclass 檢查）→ rejected（search_path 是 fail-open，缺表會靜默寫進 public）
  *   4. §4.4 降頻（只有 live）：長期沒場次的組合 24 小時內 → skipped
- *      （3、4 都以 UPDATE … WHERE committed_at IS NULL 記錄後刪訊息、不重試）
+ *      （3、4 都以 UPDATE … WHERE committed_at IS NULL 記錄後刪訊息、不重試；
+ *       UPDATE 影響 0 列表示別台剛提交，改成補做副作用，不直接刪）
  *   5. 交易外抓頁面、parseSlots
- *   6. 交易：SET LOCAL search_path = <target 的 schema>, public（replay 寫進 replay schema）
- *        → FOR UPDATE 鎖 scan_task_log 那一列並重新檢查 committed_at（別台先做完就 rollback、跳到 7）
- *        → pg_advisory_xact_lock 鎖整個組合
+ *   6. 交易：set_config('search_path', '<target 的 schema>, public', true)（replay 寫進 replay schema）
+ *        → FOR UPDATE 鎖 scan_task_log 那一列並重新檢查：committed_at 有值（別台先做完）→ rollback、跳到 7；
+ *          finished_at 有值但未提交（別台已判 rejected／stale／skipped）→ rollback、刪訊息
+ *        → pg_advisory_xact_lock(hashtext(target|license|dmv)) 鎖整個組合
  *        → 成功：diff → 寫 slot、slot_event、scan_log，outcome=ok
  *          失敗（HTTP 非 200、逾時、解析失敗）：只寫 scan_log.last_error*，outcome=error
  *        → 寫 committed_at、outcome，提交
- *   7. 副作用：事件從 <schema>.slot_event WHERE task_id 重建；dt = taipeiIsoDate(committed_at)；
+ *   7. 副作用（所有查詢都明確帶 schema，不依賴連線的 search_path）：
+ *      事件從 <schema>.slot_event WHERE task_id 重建；dt = taipeiIsoDate(committed_at)；
  *      原始 HTML（只有 ok）與事件放 S3；released 發 SNS
  *   8. 寫 finished_at，回傳 deleteMessage=true；呼叫端最後才刪訊息
  *
@@ -38,7 +42,7 @@ import {
   type TaskOutcome,
 } from '../../../shared/contracts.ts';
 import type { DbSchemas, Pool, PoolClient } from '../db.ts';
-import { schemaIdent, withTransaction } from '../db.ts';
+import { missingReplayTables, schemaFor, schemaIdent, withTransaction } from '../db.ts';
 import { fetchLocations, preflight, TargetGuardError, type FetchFn, type FetchResult, type Urls } from './fetch.ts';
 import type { WorkerIdentity } from './instance.ts';
 import { emfLine, type MetricsSink } from './metrics.ts';
@@ -76,7 +80,10 @@ export type ProcessResult = {
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** 這個任務的 slot／slot_event／scan_log 在哪個 schema */
-const dataSchema = (deps: Deps, task: ScanTask) => schemaIdent(deps.schemas[task.target]);
+/** 這個任務的 slot／slot_event／scan_log 在哪個 schema；未知 target 丟例外，絕不插值成 undefined */
+const dataSchema = (deps: Deps, task: ScanTask) => schemaFor(deps.schemas, task.target);
+/** scan_task_log 所在的 schema（正式環境是 public） */
+const taskSchema = (deps: Deps) => schemaFor(deps.schemas, 'live');
 
 export async function processMessage(body: string, receiveCount: number, deps: Deps): Promise<ProcessResult> {
   // === 1. 解析 ===
@@ -93,22 +100,25 @@ export async function processMessage(body: string, receiveCount: number, deps: D
   }
 
   // === 2. 登記任務、冪等判斷 ===
-  const state = await upsertTask(deps.pool, task, deps.now(), receiveCount, deps.identity);
+  const state = await upsertTask(deps.pool, task, deps.now(), receiveCount, deps.identity, taskSchema(deps));
   if (state.finished) return { deleteMessage: true, outcome: 'duplicate', taskId: task.taskId };
   if (state.committed) return finishSideEffects(task, null, deps, 'resumed');
 
   // === 3. 官網保護 ===
-  const verdict = preflight(task, deps.now(), deps.urls.replayUrl);
+  let verdict = preflight(task, deps.now(), deps.urls.replayUrl);
+  if (!verdict && task.target === 'replay') {
+    // R3-1：replay schema 缺表時 search_path 會落到 public，所以缺任何一張就拒絕（fail-closed）
+    const missing = await missingReplayTables(deps.pool, dataSchema(deps, task));
+    if (missing.length) verdict = { outcome: 'rejected', reason: `replay schema 缺表：${missing.join(', ')}，拒絕 replay 任務` };
+  }
   if (verdict) {
     deps.log({ level: 'warn', msg: verdict.outcome, taskId: task.taskId, target: task.target, reason: verdict.reason });
-    await finishWithoutScan(deps, task, verdict.outcome, verdict.reason);
-    return { deleteMessage: true, outcome: verdict.outcome, taskId: task.taskId, error: verdict.reason };
+    return finishWithoutScan(deps, task, verdict.outcome, verdict.reason);
   }
 
   // === 4. 降頻（只有 live；replay 實驗量測的是每一則任務） ===
   if (task.target === 'live' && (await shouldSkip(deps, task, deps.now()))) {
-    await finishWithoutScan(deps, task, 'skipped', null);
-    return { deleteMessage: true, outcome: 'skipped', taskId: task.taskId };
+    return finishWithoutScan(deps, task, 'skipped', null);
   }
 
   // === 5. 抓取（交易外，避免長時間持有鎖） ===
@@ -135,8 +145,7 @@ export async function processMessage(body: string, receiveCount: number, deps: D
     if (e instanceof TargetGuardError) {
       // preflight 已經擋過，走到這裡代表兩道防線判斷不一致；一樣不發請求、記 rejected
       deps.log({ level: 'error', msg: 'target guard', taskId: task.taskId, error: e.message });
-      await finishWithoutScan(deps, task, 'rejected', e.message);
-      return { deleteMessage: true, outcome: 'rejected', taskId: task.taskId, error: e.message };
+      return finishWithoutScan(deps, task, 'rejected', e.message);
     }
     upstreamError = errMsg(e);
   }
@@ -145,17 +154,25 @@ export async function processMessage(body: string, receiveCount: number, deps: D
 
   // === 6. 交易 ===
   const schema = dataSchema(deps, task);
-  const liveSchema = schemaIdent(deps.schemas.live);
-  const committed = await withTransaction(deps.pool, async (c) => {
-    // 契約 §7.3：SQL 寫不帶 schema 的表名；replay 的 slot／slot_event／scan_log 落在 replay schema，
-    // scan_task_log 只有 public（測試時是 live 用的 schema）有，照樣找得到
-    await c.query(`SET LOCAL search_path = ${schema}, ${liveSchema}`);
-    const row = await c.query<{ committed_at: number | null }>(
-      'SELECT committed_at FROM scan_task_log WHERE task_id = $1 FOR UPDATE',
+  const ts = taskSchema(deps);
+  const txResult = await withTransaction(deps.pool, async (c): Promise<'committed' | 'already-committed' | 'already-finished'> => {
+    // 契約 §7.3：slot／slot_event／scan_log 寫不帶 schema 的表名，replay 的落在 replay schema。
+    // 用 set_config 帶參數（SET 不能用 bind 參數）；兩個名稱都已經過 schemaIdent，只會是小寫識別字。
+    // scan_task_log 一律明確寫 schema，不靠 search_path。
+    await c.query("SELECT set_config('search_path', $1, true)", [`${schema}, ${ts}`]);
+    const row = await c.query<{ committed_at: number | null; finished_at: number | null }>(
+      `SELECT committed_at, finished_at FROM ${ts}.scan_task_log WHERE task_id = $1 FOR UPDATE`,
       [task.taskId],
     );
-    if (row.rows[0]?.committed_at != null) return false; // 別台先提交了
-    await c.query("SELECT pg_advisory_xact_lock(hashtext($1 || '|' || $2))", [task.licenseType, task.dmvNo]);
+    if (row.rows[0]?.committed_at != null) return 'already-committed'; // 別台先提交了
+    // R3-2：別台已經把它判成 rejected／stale／skipped（finished 而未 committed），不能再提交成 ok
+    if (row.rows[0]?.finished_at != null) return 'already-finished';
+    // R3-4：鎖的鍵帶 target，live 與 replay 寫不同的表，不必互相等
+    await c.query("SELECT pg_advisory_xact_lock(hashtext($1 || '|' || $2 || '|' || $3))", [
+      task.target,
+      task.licenseType,
+      task.dmvNo,
+    ]);
 
     if (slots === null) {
       await c.query(
@@ -167,17 +184,21 @@ export async function processMessage(body: string, receiveCount: number, deps: D
            duration_ms = EXCLUDED.duration_ms`,
         [task.licenseType, task.dmvNo, upstreamError, fetchedAt, durationMs],
       );
-      await markCommitted(c, task.taskId, deps.now(), 'error', upstreamError, deps.identity);
+      await markCommitted(c, ts, task.taskId, deps.now(), 'error', upstreamError, deps.identity);
     } else {
       const note = await applyScan(c, task, slots, fetchedAt, durationMs);
-      await markCommitted(c, task.taskId, deps.now(), 'ok', note, deps.identity);
+      await markCommitted(c, ts, task.taskId, deps.now(), 'ok', note, deps.identity);
     }
-    return true;
+    return 'committed';
   });
 
-  if (!committed) {
+  if (txResult === 'already-committed') {
     // 同一個 taskId 被另一台搶先提交；這次抓的結果丟掉，只確保副作用有做
     return finishSideEffects(task, null, deps, 'resumed');
+  }
+  if (txResult === 'already-finished') {
+    deps.log({ level: 'warn', msg: 'task already finished by another worker, result discarded', taskId: task.taskId });
+    return { deleteMessage: true, outcome: 'duplicate', taskId: task.taskId };
   }
 
   const releasedCount = slots === null ? 0 : await countReleased(deps, task);
@@ -213,8 +234,9 @@ async function finishSideEffects(
   outcome: ProcessResult['outcome'],
   error: string | null = null,
 ): Promise<ProcessResult> {
+  const ts = taskSchema(deps);
   const tl = await deps.pool.query<{ committed_at: number | null; finished_at: number | null }>(
-    'SELECT committed_at, finished_at FROM scan_task_log WHERE task_id = $1',
+    `SELECT committed_at, finished_at FROM ${ts}.scan_task_log WHERE task_id = $1`,
     [task.taskId],
   );
   const row = tl.rows[0];
@@ -253,7 +275,7 @@ async function finishSideEffects(
     return { deleteMessage: false, outcome: 'retry', taskId: task.taskId, events: events.length, error: failures.join('; ') };
   }
 
-  await deps.pool.query('UPDATE scan_task_log SET finished_at = $2 WHERE task_id = $1 AND finished_at IS NULL', [
+  await deps.pool.query(`UPDATE ${ts}.scan_task_log SET finished_at = $2 WHERE task_id = $1 AND finished_at IS NULL`, [
     task.taskId,
     deps.now(),
   ]);
@@ -293,9 +315,11 @@ export async function upsertTask(
   now: number,
   receiveCount: number,
   id: WorkerIdentity,
+  schema = 'public',
 ): Promise<{ committed: boolean; finished: boolean }> {
+  const ts = schemaIdent(schema);
   const r = await pool.query<{ committed_at: number | null; finished_at: number | null }>(
-    `INSERT INTO scan_task_log
+    `INSERT INTO ${ts}.scan_task_log
        (task_id, run_id, license_type, dmv_no, tier, target, enqueued_at, started_at, worker_id, az, receive_count)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (task_id) DO UPDATE SET
@@ -321,18 +345,42 @@ export async function upsertTask(
   return { committed: row.committed_at != null, finished: row.finished_at != null };
 }
 
-/** rejected／stale／skipped：沒有抓頁面、沒有交易，直接標記完成（契約 §4.2 的記法） */
-async function finishWithoutScan(deps: Deps, task: ScanTask, outcome: TaskOutcome, error: string | null) {
-  await deps.pool.query(
-    `UPDATE scan_task_log
+/**
+ * rejected／stale／skipped：沒有抓頁面、沒有交易，直接標記完成（契約 §4.2 的記法）。
+ * UPDATE 影響 0 列（R3-2）代表在步驟 2 之後別台剛好提交了：這時不能直接刪訊息，
+ * 否則對方若在副作用途中掛掉，SNS／S3 就永遠補不回來 → 改成補做副作用。
+ */
+async function finishWithoutScan(
+  deps: Deps,
+  task: ScanTask,
+  outcome: 'rejected' | 'stale' | 'skipped',
+  error: string | null,
+): Promise<ProcessResult> {
+  const ts = taskSchema(deps);
+  const r = await deps.pool.query(
+    `UPDATE ${ts}.scan_task_log
         SET outcome = $2, error = $3, finished_at = $4, worker_id = $5, az = $6
       WHERE task_id = $1 AND committed_at IS NULL`,
     [task.taskId, outcome, error, deps.now(), deps.identity.workerId, deps.identity.az],
   );
+  if ((r.rowCount ?? 0) > 0) return { deleteMessage: true, outcome, taskId: task.taskId, error: error ?? undefined };
+
+  const row = (
+    await deps.pool.query<{ committed_at: number | null }>(`SELECT committed_at FROM ${ts}.scan_task_log WHERE task_id = $1`, [
+      task.taskId,
+    ])
+  ).rows[0];
+  if (row?.committed_at != null) {
+    deps.log({ level: 'warn', msg: `${outcome} skipped: committed by another worker, resuming side effects`, taskId: task.taskId });
+    return finishSideEffects(task, null, deps, 'resumed');
+  }
+  // 那一列不見了（例如被 janitor 刪掉）：沒有東西要補，照原判定刪訊息
+  return { deleteMessage: true, outcome, taskId: task.taskId, error: error ?? undefined };
 }
 
 async function markCommitted(
   c: PoolClient,
+  ts: string,
   taskId: string,
   now: number,
   outcome: 'ok' | 'error',
@@ -340,7 +388,7 @@ async function markCommitted(
   id: WorkerIdentity,
 ) {
   await c.query(
-    'UPDATE scan_task_log SET committed_at = $2, outcome = $3, error = $4, worker_id = $5, az = $6 WHERE task_id = $1',
+    `UPDATE ${ts}.scan_task_log SET committed_at = $2, outcome = $3, error = $4, worker_id = $5, az = $6 WHERE task_id = $1`,
     [taskId, now, outcome, error, id.workerId, id.az],
   );
 }

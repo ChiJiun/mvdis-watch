@@ -5,7 +5,7 @@
 import { after, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import type pg from 'pg';
+import pg from 'pg';
 import { PRUNE_AFTER_EMPTY, processMessage, type Deps } from '../src/worker/process.ts';
 import { LIVE_TASK_MAX_AGE_MS, taipeiIsoDate, type ReleasedEvent, type ScanTask } from '../../shared/contracts.ts';
 import type { DbSchemas } from '../src/db.ts';
@@ -445,6 +445,123 @@ describe('worker processMessage（Postgres）', { skip }, () => {
       [published.at(-1)!.target, published.at(-1)!.runId, published.at(-1)!.taskId],
       ['replay', 'e3', t.taskId],
     );
+  });
+
+  test('R3-1：replay schema 不存在或缺表時拒絕 replay 任務、不發請求，也不會落到正式的表', async () => {
+    const partial = `${schemas.live}_partial`;
+    await pool.query(`CREATE SCHEMA ${partial}`);
+    await pool.query(`CREATE TABLE ${partial}.slot (LIKE ${schemas.live}.slot INCLUDING ALL)`);
+    await pool.query(`CREATE TABLE ${partial}.slot_event (LIKE ${schemas.live}.slot_event INCLUDING ALL)`);
+    try {
+      setPage([{ date: D1, session: '上午', group: 1, quota: 2 }]);
+      for (const [replay, missing] of [
+        [`${schemas.live}_nope`, /_nope\.slot, .*_nope\.slot_event, .*_nope\.scan_log/],
+        [partial, /_partial\.scan_log/],
+      ] as const) {
+        const t = task({ target: 'replay', runId: 'e1' });
+        const r = await run(t, deps({ schemas: { live: schemas.live, replay } }));
+        assert.deepEqual([r.outcome, r.deleteMessage], ['rejected', true], replay);
+        assert.match(r.error!, missing);
+        assert.equal((await taskRow(t.taskId)).outcome, 'rejected');
+      }
+      assert.equal(fetchCalls.length, 0);
+      for (const tbl of ['slot', 'slot_event', 'scan_log']) {
+        assert.equal(await count(`SELECT count(*) AS n FROM ${tbl}`), 0, `正式的 ${tbl} 沒被寫入`);
+      }
+      assert.equal(await count(`SELECT count(*) AS n FROM ${partial}.slot`), 0);
+    } finally {
+      await pool.query(`DROP SCHEMA ${partial} CASCADE`);
+    }
+  });
+
+  test('R3-1：schema 對應拿到未知 target 或 undefined 時丟例外，不插值成 undefined', async () => {
+    const t = task({ target: 'replay', runId: 'e1' });
+    await assert.rejects(
+      run(t, deps({ schemas: { live: schemas.live, replay: undefined } as unknown as DbSchemas })),
+      /不合法的 schema 名稱：undefined/,
+    );
+    await assert.rejects(
+      run(task({ target: 'replay', runId: 'e1' }), deps({ schemas: { live: schemas.live } as unknown as DbSchemas })),
+      /未知的 target：replay/,
+    );
+    assert.equal(fetchCalls.length, 0);
+  });
+
+  /** 包一層連線池：每次 pool.query 前先呼叫 before(sql)，用來在兩個步驟之間插入「別台 worker」的動作 */
+  const racingPool = (before: (sql: string) => Promise<void>): pg.Pool =>
+    new Proxy(pool, {
+      get(target, key) {
+        if (key === 'query') {
+          return async (sql: string, params?: unknown[]) => {
+            await before(String(sql));
+            return target.query(sql, params);
+          };
+        }
+        const v = Reflect.get(target, key);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+
+  test('R3-2：判 stale 的 UPDATE 影響 0 列（別台剛提交）→ 不直接刪，改成補做副作用', async () => {
+    const t = task({ enqueuedAt: clock - LIVE_TASK_MAX_AGE_MS - 1 });
+    let raced = false;
+    const p = racingPool(async (sql) => {
+      if (!raced && sql.includes('SET outcome = $2')) {
+        raced = true; // 「A 台」在 B 讀完 committed_at 之後、寫 stale 之前提交，並留下一筆 released 事件
+        await pool.query(
+          `INSERT INTO slot_event (license_type, dmv_no, exam_date, sec_key, kind, old_quota, new_quota, at, task_id)
+           VALUES ('3', '63', $1, '1:1', 'released', -1, 2, $2, $3)`,
+          [D1, clock, t.taskId],
+        );
+        await pool.query(`UPDATE scan_task_log SET committed_at = $2, outcome = 'ok' WHERE task_id = $1`, [t.taskId, clock]);
+      }
+    });
+    const r = await run(t, deps({ pool: p }));
+    assert.ok(raced);
+    assert.deepEqual([r.outcome, r.deleteMessage, r.released], ['resumed', true, 1]);
+    assert.equal(fetchCalls.length, 0);
+    assert.equal(published.length, 1, 'A 台的 released 由 B 補發');
+    const tl = await taskRow(t.taskId);
+    assert.deepEqual([tl.outcome, typeof tl.finished_at], ['ok', 'number'], '不會被改成 stale');
+  });
+
+  test('R3-2：交易前別台已判 stale（finished 而未 committed）→ rollback、刪訊息，不提交成 ok', async () => {
+    setPage([{ date: D1, session: '上午', group: 1, quota: 2 }]);
+    const t = task();
+    const r = await run(
+      t,
+      deps({
+        fetchFn: (async () => {
+          fetchCalls.push('live');
+          // 抓取期間，「B 台」把同一個任務判成 stale
+          await pool.query(`UPDATE scan_task_log SET outcome = 'stale', finished_at = $2 WHERE task_id = $1`, [t.taskId, clock]);
+          return new Response(html, { status: 200 });
+        }) as typeof fetch,
+      }),
+    );
+    assert.deepEqual([r.outcome, r.deleteMessage], ['duplicate', true]);
+    const tl = await taskRow(t.taskId);
+    assert.deepEqual([tl.outcome, tl.committed_at], ['stale', null], 'finished 早於 committed 的狀態不會出現');
+    assert.equal(await count('SELECT count(*) AS n FROM slot'), 0);
+    assert.deepEqual([puts.length, published.length], [0, 0]);
+  });
+
+  test('R3-4：advisory lock 的鍵帶 target，live 持有同組合的鎖時 replay 任務不必等', async () => {
+    const holder = new pg.Client({ connectionString: TEST_DATABASE_URL });
+    await holder.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query("SELECT pg_advisory_xact_lock(hashtext('live|3|63'))");
+      setPage([{ date: D1, session: '上午', group: 1, quota: 2 }]);
+      const r = await Promise.race([
+        run(task({ target: 'replay', runId: 'e4' })),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('replay 任務在等 live 的鎖')), 5000)),
+      ]);
+      assert.equal(r.outcome, 'ok');
+    } finally {
+      await holder.query('ROLLBACK');
+      await holder.end();
+    }
   });
 
   test('資料庫錯誤會丟例外（呼叫端不刪訊息，讓 SQS 重送）', async () => {

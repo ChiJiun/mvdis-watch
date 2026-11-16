@@ -42,10 +42,18 @@ replay 資料只進 `replay` schema、SNS filter policy 只放 live、notifier �
   EventBridge 同一分鐘重複觸發時，重複的任務在 worker 端被冪等檢查擋掉，不會多打官網。
 - **dispatcher 設定不合法時丟例外**（不送任何任務）：`HOT_PER_TICK`／`COLD_PER_TICK` 不是非負整數、或合計不在 1–14。
   讓 Lambda 的 Errors 指標可以設警報。
-- **replay 資料隔離（契約 §7.3）**：交易內 `SET LOCAL search_path = <schema>, public`，schema 取自 `DB_SCHEMA_BY_TARGET`；
-  交易外的查詢（降頻判斷、補做副作用時重建事件）明確寫 `<schema>.scan_log`／`<schema>.slot_event`。
+- **replay 資料隔離（契約 §7.3）**：交易內 `SELECT set_config('search_path', '<schema>, public', true)`（等同 `SET LOCAL`，但能帶參數），
+  schema 取自 `DB_SCHEMA_BY_TARGET`；`scan_task_log` 與交易外的查詢（降頻判斷、補做副作用時重建事件）一律明確寫 schema，不依賴連線的 search_path。
   schema 對應從 `Deps.schemas` 注入（正式環境就是 `DB_SCHEMA_BY_TARGET`），測試才能每個檔案用自己的一對 schema；
-  名稱會直接拼進 SQL，所以只接受小寫識別字（`schemaIdent()`）。
+  名稱會拼進表名，所以只接受小寫識別字，未知 target 或 `undefined` 直接丟例外（`schemaFor()`／`schemaIdent()`）。
+- **replay 缺表就拒絕（fail-closed）**：`search_path = replay, public` 在 replay schema 缺表時不會報錯，而是靜默寫進 public。
+  所以處理 replay 任務前先用 `to_regclass` 確認 `replay.slot`／`slot_event`／`scan_log` 都在，缺任何一張就記 `rejected`、不發請求。
+  確認通過後記住（每個連線池、每個 schema 一次）；缺表時不記，跑完 migrate 下一則就會通過。
+- **並發的兩個縫（契約 #3 第 3 輪 review R3-2）**：
+  - `rejected`／`stale`／`skipped` 的 UPDATE 影響 0 列 → 表示別台在步驟 2 之後剛提交，改成補做副作用，不直接刪訊息。
+  - 交易內鎖住 `scan_task_log` 那列後，`finished_at` 有值但 `committed_at` 為空（別台已判 rejected／stale／skipped）→ rollback、刪訊息，不再提交成 `ok`。
+- **advisory lock 的鍵帶 target**：`hashtext(target || '|' || license_type || '|' || dmv_no)`，live 與 replay 寫不同的表，不必互相等。
+- **刪訊息時 receipt handle 失效**（處理超過可見性逾時、訊息已被別台收走）只記 warn：DB 已記好結果，重送時走冪等路徑。
 - **舊快照不覆蓋新資料**：持有組合 advisory lock 後，若 `scan_log.last_ok` 比這次抓取時間還新就不套用 diff
   （記 `ok`、error 欄寫 `stale snapshot, not applied`）。這是契約 §5「已知限制」之外多做的保護，
   比較的是各台 worker 的本機時間，依賴 EC2 的 NTP（Amazon Time Sync）；時鐘差幾分鐘時可能誤判成舊快照。

@@ -40,8 +40,28 @@ export async function handleMessage(m: Message, opts: ConsumerOptions): Promise<
   }
   opts.onResult?.(r);
   deps.log({ level: r.outcome === 'error' || r.outcome === 'invalid' ? 'warn' : 'info', msg: 'task', ...r });
-  if (r.deleteMessage) {
+  if (r.deleteMessage) await deleteMessage(m, opts);
+}
+
+/** SQS 回這些錯誤代表 receipt handle 已失效：訊息已經被別台處理（或可見性逾時後重新派發）了 */
+const STALE_RECEIPT_ERRORS = new Set(['ReceiptHandleIsInvalid', 'InvalidParameterValue', 'MessageNotInflight']);
+
+/**
+ * 刪訊息。處理超過可見性逾時時，同一則訊息可能已被別台收走，這邊的 receipt handle 就會失效（R3-7）。
+ * DB 已經記好結果，訊息若再被收到只會走冪等路徑（duplicate／補做副作用），所以這種錯誤只記 warn、不往外丟。
+ */
+export async function deleteMessage(m: Message, opts: Pick<ConsumerOptions, 'sqs' | 'queueUrl' | 'deps'>): Promise<void> {
+  try {
     await opts.sqs.send(new DeleteMessageCommand({ QueueUrl: opts.queueUrl, ReceiptHandle: m.ReceiptHandle }));
+  } catch (e) {
+    const name = (e as { name?: string })?.name ?? '';
+    const stale = STALE_RECEIPT_ERRORS.has(name) || /receipt handle/i.test(e instanceof Error ? e.message : '');
+    opts.deps.log({
+      level: stale ? 'warn' : 'error',
+      msg: stale ? 'receipt handle 已失效，略過刪除（DB 已記錄結果，重送時走冪等路徑）' : 'delete failed',
+      messageId: m.MessageId,
+      error: e instanceof Error ? `${name}: ${e.message}` : String(e),
+    });
   }
 }
 
@@ -76,7 +96,7 @@ export async function runConsumer(opts: ConsumerOptions): Promise<void> {
     for (const m of messages) {
       const p: Promise<void> = handleMessage(m, opts)
         .catch((e) =>
-          opts.deps.log({ level: 'error', msg: 'delete failed', error: e instanceof Error ? e.message : String(e) }),
+          opts.deps.log({ level: 'error', msg: 'handle failed', error: e instanceof Error ? e.message : String(e) }),
         )
         .finally(() => inflight.delete(p));
       inflight.add(p);
