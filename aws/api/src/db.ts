@@ -13,8 +13,10 @@
  *     （RDS PostgreSQL 15 起預設 rds.force_ssl=1，不開 SSL 連不上）；走 DATABASE_URL 時預設 `disable`，
  *     要加密就在 URL 帶 sslmode 或設這個變數。
  *   - `DB_STATEMENT_TIMEOUT_MS`：單一查詢逾時，預設 10000。
- *   - `DB_CONNECT_TIMEOUT_MS`：從連線池取得連線的等待上限，預設 5000。**連線池排隊超過這個時間，
- *     該請求就回 500**——E1 壓測時的錯誤率與 p95 要用這個值來解讀。
+ *   - `DB_CONNECT_TIMEOUT_MS`：從連線池取得連線的等待上限，預設 5000。包含排隊等空出來的連線，
+ *     以及需要開新連線時的 TCP＋TLS＋認證時間。**超過這個時間，該請求就回 500**——
+ *     E1 壓測時的錯誤率與 p95 要用這個值來解讀。
+ *   - 用戶端查詢逾時固定為 `DB_STATEMENT_TIMEOUT_MS + 2000`（見 poolConfigFromEnv）。
  */
 import pg from 'pg';
 import { PG_TYPE_RULES } from '../../shared/contracts.ts';
@@ -75,11 +77,17 @@ async function readDbSecret(arn: string): Promise<{ username: string; password: 
 
 /** 依環境變數組出 API 連線池的設定。抽出來是為了讓測試能直接檢查，不必真的連線。 */
 export async function poolConfigFromEnv(env: Env = process.env): Promise<pg.PoolConfig> {
+  const statementTimeout = intEnv(env, 'DB_STATEMENT_TIMEOUT_MS', 10000);
   const common: pg.PoolConfig = {
     max: intEnv(env, 'DB_POOL_MAX', 10),
     connectionTimeoutMillis: intEnv(env, 'DB_CONNECT_TIMEOUT_MS', 5000),
     idleTimeoutMillis: 30000,
-    statement_timeout: intEnv(env, 'DB_STATEMENT_TIMEOUT_MS', 10000),
+    statement_timeout: statementTimeout,
+    // statement_timeout 是伺服器端的設定，DB 無聲斷線（例如 RDS 切換時收不到 RST）時不會觸發；
+    // 用戶端的 query_timeout 才會。逾時後 pg-pool 會丟掉並 destroy 那條連線，不會一直佔著。
+    // 比 statement_timeout 多 2 秒，正常的慢查詢仍由伺服器端先取消。
+    query_timeout: statementTimeout + 2000,
+    keepAlive: true,
     application_name: 'mvdis-api',
     options: SESSION_OPTIONS,
     types,
@@ -107,6 +115,10 @@ export async function poolConfigFromEnv(env: Env = process.env): Promise<pg.Pool
  * 健康檢查專用連線池的設定：只有 1 條常駐連線、等不到就快速失敗。
  * 和 API 共用連線池的話，壓測時 /healthz 會排在幾百個 API 查詢後面，等超過 ALB 的 5 秒逾時，
  * DB 明明連得到卻被判定不健康，ASG 就會在 E1 中途把 instance 換掉。
+ *
+ * 只有 1 條連線，所以 `query_timeout` 一定要有：那條連線無聲斷線時，卡住的 `SELECT 1` 會
+ * 一直佔著唯一的連線，DB 恢復後 healthz 仍然逾時到 TCP 放棄為止（Linux 預設約 15 分鐘）。
+ * 2.5 秒逾時後連線被丟掉，下一次檢查重新連線；整個檢查最壞約 2.5 秒，低於 ALB 的 5 秒逾時。
  */
 export function healthPoolConfig(apiConfig: pg.PoolConfig): pg.PoolConfig {
   return {
@@ -114,6 +126,7 @@ export function healthPoolConfig(apiConfig: pg.PoolConfig): pg.PoolConfig {
     max: 1,
     connectionTimeoutMillis: 2000,
     statement_timeout: 2000,
+    query_timeout: 2500,
     idleTimeoutMillis: 0, // 不回收，省掉每次健康檢查的連線建立（含 TLS）成本
     application_name: 'mvdis-api-health',
   };

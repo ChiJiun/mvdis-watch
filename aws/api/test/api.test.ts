@@ -577,6 +577,103 @@ describe('第 2 輪 review 的修正', () => {
   });
 });
 
+/**
+ * 可以「無聲斷線」的 TCP proxy：stall() 之後，既有連線的資料全部默默丟掉（不送 RST／FIN），
+ * 新連線接受但永遠不回應——模擬 RDS 切換時舊主機消失。resume() 之後新連線恢復正常，舊連線維持卡死。
+ */
+async function stallableProxy(targetHost: string, targetPort: number) {
+  const { createServer: createTcp, connect } = await import('node:net');
+  let stalled = false;
+  const sockets = new Set<import('node:net').Socket>();
+  const conns: Array<{ dead: boolean }> = [];
+  const server = createTcp((client) => {
+    sockets.add(client);
+    client.on('error', () => {});
+    client.on('close', () => sockets.delete(client));
+    if (stalled) return; // 接受連線，但什麼都不回
+    const c = { dead: false };
+    conns.push(c);
+    const upstream = connect(targetPort, targetHost);
+    sockets.add(upstream);
+    upstream.on('error', () => {});
+    client.on('data', (d) => { if (!c.dead) upstream.write(d); });
+    upstream.on('data', (d) => { if (!c.dead) client.write(d); });
+    client.on('close', () => upstream.destroy());
+    upstream.on('close', () => { sockets.delete(upstream); if (!c.dead) client.destroy(); });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return {
+    port: (server.address() as AddressInfo).port,
+    stall() {
+      stalled = true;
+      for (const c of conns) c.dead = true;
+    },
+    resume() {
+      stalled = false;
+    },
+    async close() {
+      for (const s of sockets) s.destroy();
+      await new Promise((r) => server.close(r));
+    },
+  };
+}
+
+describe('第 3 輪 review 的修正', () => {
+  test('R3-B1：DB 無聲斷線時 healthz 在 3 秒內回 503，DB 恢復後幾秒內回到 200（API 也恢復）', async () => {
+    const target = new URL(testUrl);
+    const proxy = await stallableProxy(target.hostname, Number(target.port || 5432));
+    const proxied = new URL(testUrl);
+    proxied.hostname = '127.0.0.1';
+    proxied.port = String(proxy.port);
+    const { api, health } = await createPools({ DATABASE_URL: proxied.toString(), DB_STATEMENT_TIMEOUT_MS: '1000', DB_CONNECT_TIMEOUT_MS: '2000' });
+    const s = createServer(createHandler({ getDb: async () => api, healthCheck: createHealthCheck(async () => health, 0) }));
+    await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
+    const url = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+    const timed = async (path: string) => {
+      const t0 = Date.now();
+      const r = await fetch(url + path, { signal: AbortSignal.timeout(10_000) });
+      await r.arrayBuffer();
+      return { status: r.status, ms: Date.now() - t0 };
+    };
+    try {
+      assert.equal((await timed('/healthz')).status, 200);
+      assert.equal((await timed('/api/meta')).status, 200);
+
+      proxy.stall();
+      for (let i = 0; i < 2; i++) {
+        const h = await timed('/healthz');
+        assert.equal(h.status, 503, `斷線中第 ${i + 1} 次`);
+        assert.ok(h.ms < 3000, `斷線中 healthz 花了 ${h.ms} ms，應低於 ALB 的 5 秒逾時`);
+      }
+      assert.equal((await timed('/api/meta')).status, 500, 'API 的卡住查詢由 query_timeout 結束，不會一直掛著');
+
+      proxy.resume();
+      const t0 = Date.now();
+      let h = await timed('/healthz');
+      while (h.status !== 200 && Date.now() - t0 < 8000) h = await timed('/healthz');
+      assert.equal(h.status, 200, 'DB 恢復後 healthz 要回到 200');
+      assert.ok(Date.now() - t0 < 5000, `恢復花了 ${Date.now() - t0} ms`);
+
+      let m = await timed('/api/meta');
+      while (m.status !== 200 && Date.now() - t0 < 10_000) m = await timed('/api/meta');
+      assert.equal(m.status, 200, 'DB 恢復後 API 也要恢復');
+    } finally {
+      await new Promise((r) => s.close(r));
+      await proxy.close();
+      await Promise.all([api.end(), health.end()]);
+    }
+  });
+
+  test('API 與健康檢查連線池都有用戶端查詢逾時與 TCP keepalive', async () => {
+    const c = await poolConfigFromEnv({ DATABASE_URL: 'x', DB_STATEMENT_TIMEOUT_MS: '4000' });
+    assert.equal(c.query_timeout, 6000, 'API：statement_timeout + 2 秒');
+    assert.equal(c.keepAlive, true);
+    const h = healthPoolConfig(c);
+    assert.ok(h.query_timeout! > 0 && h.query_timeout! <= 3000, 'healthz：≤ 3 秒，低於 ALB 的 5 秒逾時');
+    assert.ok(h.statement_timeout! < h.query_timeout!);
+  });
+});
+
 describe('連線設定', () => {
   test('每條連線固定 search_path=public 與 DateStyle=ISO；連線等待逾時可設定', async () => {
     const c = await poolConfigFromEnv({ DATABASE_URL: 'x', DB_CONNECT_TIMEOUT_MS: '1500' });
