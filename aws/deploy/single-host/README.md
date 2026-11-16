@@ -11,7 +11,7 @@ AWS 上的正式部署仍然用 [`aws/infra/`](../../infra/) 的 Terraform，這
 | EventBridge（每分鐘／每日） | `scheduler` 容器：每分鐘呼叫 dispatcher（佇列有積壓時跳過），台灣時間 04:00 呼叫 janitor，04:10 清 `raw/` 與 `events/` |
 | worker／api／replay ASG | 各一個容器，共用同一個映像 `mvdis-aws` |
 | notifier Lambda（Discord） | **沒有接**。live 的 `released` 事件會照 filter policy 進 LocalStack 的 `mvdis-notify-local` 佇列 |
-| CloudFront＋ALB | 沒有。api 只綁 `127.0.0.1:${API_PORT}`，用 SSH tunnel 看 |
+| CloudFront＋ALB | 沒有。api 只綁 `127.0.0.1:${API_PORT}`，用 SSH tunnel 看；要公開可用選用的 Cloudflare Tunnel（見「公開儀表板」） |
 
 和 AWS 版的差異只在部署層；程式碼完全相同（同一份 `dispatcher`、`janitor` handler、`worker.mjs`、`api.mjs`、`replay.mjs`）。
 
@@ -70,7 +70,7 @@ docker compose logs -f scheduler   # 每分鐘有 dispatcher 的 dispatched 和 
 
 > **一台主機只能跑一份 scheduler。** 不要 `docker compose up --scale scheduler=2`，也不要在同一台主機用不同目錄或專案名稱再起一份這個 compose，否則每分鐘的官網請求會加倍。compose 已固定專案名稱為 `mvdis-watch`，在別的目錄執行 `docker compose up` 會接管同一組容器，不會另起一份。
 
-從自己的電腦看儀表板：
+從自己的電腦看儀表板（要公開給別人看，見下面的「公開儀表板」）：
 
 ```bash
 ssh -N -L 8200:127.0.0.1:8200 <使用者>@<主機>
@@ -123,6 +123,68 @@ curl -s -o /dev/null -w "%{http_code}\n" https://mvdis-live-proxy.<子網域>.wo
 
 > 注意：這等於讓 Cloudflare 代替海外主機向官網發請求。官網若明確禁止自動查詢或加上驗證機制，應停止使用（見提案的「不在範圍內」）。
 
+## 公開儀表板（Cloudflare Tunnel，選用）
+
+compose 裡的 `tunnel` 服務（profile `tunnel`，預設不啟動）會用 cloudflared 把 `api` 公開到你在 Cloudflare 上的網域。
+只有主機往外連，不用開任何對內的 port，也不用改主機的防火牆。
+
+需要一個由 Cloudflare 代管 DNS 的網域。以下在主機上執行，`<hostname>` 換成要用的網址（例如 `mvdis.example.com`）：
+
+```bash
+# cloudflared 映像以 uid 65532 執行，資料夾要給它寫入權限
+sudo mkdir -p /opt/mvdis-cloudflared
+sudo chown 65532:65532 /opt/mvdis-cloudflared && sudo chmod 700 /opt/mvdis-cloudflared
+CF="docker run --rm -it -v /opt/mvdis-cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared:2026.10.2"
+
+$CF tunnel login                              # 用瀏覽器開印出的網址，選網域並按「授權」，會寫入 cert.pem
+$CF tunnel create mvdis-watch                 # 印出 tunnel id，並寫入 <tunnel id>.json（Tunnel 的憑證）
+$CF tunnel route dns mvdis-watch <hostname>   # 建立指向這個 Tunnel 的 CNAME
+```
+
+`cert.pem` 可以管理這個網域底下所有的 Tunnel 和 DNS，執行 Tunnel 用不到它。建好之後把它移出會掛進容器的資料夾，
+之後要 `route dns`、刪除 Tunnel 時再搬回來（或重新 `tunnel login`）：
+
+```bash
+sudo mkdir -p /opt/mvdis-cloudflared-admin && sudo chmod 700 /opt/mvdis-cloudflared-admin
+sudo mv /opt/mvdis-cloudflared/cert.pem /opt/mvdis-cloudflared-admin/
+```
+
+接著寫 `/opt/mvdis-cloudflared/config.yml`（資料夾只有 uid 65532 能寫，所以用 `sudo tee`；`<tunnel id>` 換成上面印出的 id）：
+
+```bash
+sudo tee /opt/mvdis-cloudflared/config.yml >/dev/null <<'EOF'
+tunnel: <tunnel id>
+credentials-file: /home/nonroot/.cloudflared/<tunnel id>.json
+ingress:
+  - hostname: <hostname>
+    service: http://api:8080
+  - service: http_status:404
+EOF
+sudo chown 65532:65532 /opt/mvdis-cloudflared/config.yml
+```
+
+啟用（在 `single-host` 資料夾執行）：
+
+```bash
+# 在 .env 加上 COMPOSE_PROFILES=tunnel：之後一般的 docker compose up -d／down 都會包含 tunnel
+echo 'COMPOSE_PROFILES=tunnel' >> .env
+docker compose up -d tunnel
+docker compose logs tunnel | grep Registered   # 應該有 4 條 Registered tunnel connection
+```
+
+如果之前用 `docker run` 手動起過同一條 Tunnel 的 connector，啟用後要 `docker rm -f` 掉它，不然同一條 Tunnel 會有兩個 connector。
+
+- `cert.pem` 與 `<tunnel id>.json`（可以冒用這條 Tunnel）都不要外流，也不要進 repo。
+- 公開之後任何人都能看儀表板、呼叫 `/api/*`。API 是唯讀的，但沒有限速；負載在這台主機的 api 和 Postgres 上。要限制誰能看，請在 Cloudflare Zero Trust 為這個網址加一個 Access 應用程式。
+- `COMPOSE_PROFILES` 要寫在 `.env`，不要只在某次指令前面臨時設定。沒有啟用 profile 的 `docker compose down` 不會處理 tunnel 容器：
+  tunnel 在跑時它會留著 tunnel 和網路；tunnel 已經停掉時會刪掉網路、留下容器，之後重新啟用就會因為找不到網路而起不來。
+- 停用：先刪掉容器，再把 `.env` 的 `COMPOSE_PROFILES=tunnel` 拿掉。順序不能反過來，理由見上一點。
+
+  ```bash
+  docker compose rm -sf tunnel   # 停止並刪除容器（指名服務時不需要啟用 profile）
+  sed -i '/^COMPOSE_PROFILES=tunnel$/d' .env
+  ```
+
 ## 只用 Replay 模擬站驗證（不打官網）
 
 ```bash
@@ -154,5 +216,5 @@ docker compose exec postgres psql -U mvdis -d mvdis -c \
 ## 沒有涵蓋的部分
 
 - Discord 推播：notifier 是 Lambda handler，單機版沒有 SNS → Lambda 的觸發。需要時可以另寫一個輪詢 `mvdis-notify-local` 的小程式呼叫同一個 handler。
-- HTTPS 與對外開放：刻意不做。要公開請另外規劃（例如 Cloudflare Tunnel），並先確認主機的防火牆政策。
+- HTTPS 與對外開放：主機本身不開 port，也不處理 HTTPS。要公開請用上面「公開儀表板」的 Cloudflare Tunnel。
 - 高可用、擴展與 CloudWatch 指標：這些是 AWS 版要量測的對象（E1–E4），單機版只驗證功能。
