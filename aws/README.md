@@ -35,3 +35,7 @@ docker compose -f aws/docker-compose.yml up -d
 ```
 
 會起一個 Postgres（已套用 schema）和 LocalStack（SQS／SNS／S3／Secrets Manager）。
+
+## 單機部署
+
+拿到 AWS 帳號之前，可以先把整套（postgres、LocalStack、worker、api、replay、排程）跑在一台主機上，見 [deploy/single-host/README.md](deploy/single-host/README.md)。

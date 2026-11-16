@@ -1,0 +1,10 @@
+# 只給 aws/deploy/single-host/Dockerfile 用（BuildKit 會優先讀 <Dockerfile>.dockerignore）
+**/node_modules
+**/dist
+**/.git
+.git
+.claude
+.wrangler
+aws/infra
+aws/experiments
+aws/api/src/static.gen.ts
