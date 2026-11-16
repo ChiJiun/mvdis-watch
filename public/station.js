@@ -6,6 +6,7 @@
  */
 const MVDIS_SIGNUP = 'https://www.mvdis.gov.tw/m3-emv-trn/exm/locations';
 const REFRESH_MS = 30_000;
+const EXTERNAL_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 const $ = (s) => document.querySelector(s);
 
 const dmvNo =
@@ -19,9 +20,12 @@ let activeType = new URLSearchParams(location.search).get('type') ?? '';
 
 /* ---------- 小工具 ---------- */
 
-const fmtDate = (i, w) => { const [, m, d] = i.split('-'); return `${Number(m)}/${Number(d)}${w ? ' ' + w : ''}`; };
+/** API 與官網來的字串（場次附註、站名、錯誤訊息）一律跳脫後才放進 innerHTML */
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const fmtDate = (i, w) => { const [, m, d] = i.split('-'); return `${Number(m)}/${Number(d)}${w ? ' ' + String(w).replace('星期', '週') : ''}`; };
 const daysAway = (i) => Math.round((new Date(i) - new Date(data?.today ?? new Date().toISOString().slice(0, 10))) / 86400000);
 const shortType = (t) => (t?.name ?? '').replace(' (50cc以下)', '');
+const absTime = (t) => new Date(t).toLocaleString('zh-TW', { hour12: false });
 
 function ago(t) {
   if (!t) return '—';
@@ -39,6 +43,12 @@ function minutes(n) {
   if (n < 60) return `約 ${Math.round(n)} 分鐘`;
   if (n < 48 * 60) return `約 ${(n / 60).toFixed(1)} 小時`;
   return `約 ${Math.round(n / 1440)} 天`;
+}
+
+/** 場次附註：官網的 sec_desc 第一行是「上午場次, 組別 3」，跟 session/grp 重複，只取後面的說明 */
+function sessionNote(desc) {
+  const lines = String(desc ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  return lines.slice(1).join(' ');
 }
 
 function syncUrl() {
@@ -87,8 +97,8 @@ function render() {
   $('#crumb').textContent = station.name;
   $('#stTitle').textContent = station.name;
   $('#stMeta').innerHTML =
-    `${station.address} · ${office?.name ?? ''} · <a href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">官網報名頁</a>`;
-  $('#apiLink').href = `/api/station?dmvNo=${dmvNo}`;
+    `${esc(station.address)} · ${esc(office?.name ?? '')} · <a href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">官網報名頁</a>`;
+  $('#apiLink').href = `/api/station?dmvNo=${encodeURIComponent(dmvNo)}`;
   fillSwitch();
   renderLastScan();
   renderTypeChips();
@@ -101,10 +111,12 @@ function render() {
 
 function renderLastScan() {
   const el = $('#lastScan');
-  if (!data.lastTick) { el.textContent = '尚未掃描'; return; }
+  const t = el.querySelector('.t');
+  if (!data.lastTick) { t.textContent = '尚未掃描'; el.className = 'pill idle'; return; }
   const mins = Math.round((Date.now() - data.lastTick) / 60000);
-  el.textContent = mins <= 1 ? '剛剛更新' : `${mins} 分鐘前更新`;
-  el.classList.toggle('stale', mins > 10);
+  t.textContent = mins <= 1 ? '剛剛更新' : `${mins} 分鐘前更新`;
+  el.className = `pill${mins > 10 ? ' stale' : ''}`;
+  el.title = `最後一次抓取：${absTime(data.lastTick)}`;
 }
 
 const typesInScope = () => (activeType ? [activeType] : data.licenseTypes.map((t) => t.code));
@@ -128,8 +140,9 @@ function renderTypeChips() {
       const n = t.code ? open.get(t.code) ?? 0 : openAll;
       const has = t.code ? total.has(t.code) : data.slots.length > 0;
       b.className = `chip${activeType === t.code ? ' on' : ''}${!has ? ' zero' : ''}`;
+      b.setAttribute('aria-pressed', String(activeType === t.code));
       b.title = has ? `${n} 個場次有位` : '目前沒有開放場次';
-      b.innerHTML = `${t.code ? shortType(t) : t.name} <span class="n">${has ? n : '無'}</span>`;
+      b.innerHTML = `${esc(t.code ? shortType(t) : t.name)} <span class="n">${has ? n : '無'}</span>`;
       return b;
     }),
   );
@@ -157,16 +170,16 @@ function renderTiles() {
   const tiles = [
     { k: '現在有位', v: open.length ? `${open.length} 場` : '全額滿', sub: slots.length ? `共 ${slots.length} 個場次` : '沒有開放場次', good: open.length > 0 },
     { k: '名額合計', v: seats, sub: '目前可報名的人數' },
-    { k: '最近一次釋位', v: last ? ago(last) : '—', sub: last ? new Date(last).toLocaleString('zh-TW', { hour12: false }) : `${data.statsDays} 天內沒有釋位` },
+    { k: '最近一次釋位', v: last ? ago(last) : '—', sub: last ? absTime(last) : `${data.statsDays} 天內沒有釋位` },
     { k: `${data.statsDays} 天釋位次數`, v: released, sub: released ? `平均每週 ${(released / (data.statsDays / 7)).toFixed(1)} 次` : '額滿後就沒再開過' },
     { k: '釋位後多久被搶光', v: minutes(fill), sub: samples ? `${samples} 個樣本的中位數` : '樣本不足' },
-    { k: '最常釋位的時段', v: peakHours.length ? peakHours.map((h) => `${h}–${h + 1} 時`).join('、') : '—', sub: peak ? `各 ${peak} 次` : '—' },
+    { k: '最常釋位的時段', v: peakHours.length ? peakHours.map((h) => `${h}–${h + 1} 時`).join('、\n') : '—', sub: peak ? `各 ${peak} 次` : '—' },
   ];
   $('#tiles').replaceChildren(
     ...tiles.map((t) => {
       const d = document.createElement('div');
       d.className = `tile${t.good ? ' good' : ''}`;
-      d.innerHTML = `<span class="k">${t.k}</span><span class="v">${t.v}</span><span class="s">${t.sub}</span>`;
+      d.innerHTML = `<span class="k">${esc(t.k)}</span><span class="v">${esc(t.v)}</span><span class="s">${esc(t.sub)}</span>`;
       return d;
     }),
   );
@@ -182,11 +195,11 @@ function renderScanState() {
   const pruned = logs.filter((l) => !bad.includes(l) && l.empty_streak >= 5);
   const live = logs.filter((l) => !bad.includes(l) && !pruned.includes(l));
   const parts = [
-    ...live.map((l) => `<span>${name(l)}：上次抓取 ${ago(l.last_ok)}</span>`),
-    ...bad.map((l) => `<span class="bad">${name(l)}：抓取失敗（${l.last_error}）</span>`),
+    ...live.map((l) => `<span>${esc(name(l))}：上次抓取 ${ago(l.last_ok)}</span>`),
+    ...bad.map((l) => `<span class="bad">${esc(name(l))}：抓取失敗（${esc(l.last_error)}）</span>`),
   ];
   // 十種照類裡通常有一大半長期沒開場次，合併成一句就好，不要洗版
-  if (pruned.length) parts.push(`<span>${pruned.map(name).join('、')}：長期無場次，每 24 小時複查</span>`);
+  if (pruned.length) parts.push(`<span>${esc(pruned.map(name).join('、'))}：長期無場次，每 24 小時複查</span>`);
   $('#scanState').innerHTML = parts.join('');
 }
 
@@ -210,14 +223,17 @@ function renderTable() {
       if (r.quota <= 0) tr.className = 'full';
       const quota =
         r.quota < 0 ? '<span class="fullbadge">額滿</span>'
-        : `<span class="qty ${r.quota <= 3 ? 'low' : ''}">${r.quota}</span>`;
+        : `<span class="qty${r.quota <= 3 ? ' low' : ''}">${esc(r.quota)}</span><span class="m-unit">個名額</span>`;
+      const soon = away <= 7 ? `<span class="tag soon">${away <= 0 ? '今天' : away + ' 天後'}</span>` : '';
+      const wk = r.is_weekend ? '<span class="tag wk">假日</span>' : '';
+      const note = sessionNote(r.sec_desc);
       tr.innerHTML = `
-        <td class="${away <= 7 ? 'soon' : ''}">${fmtDate(r.exam_date, r.weekday)}${away <= 7 ? ` <small>${away <= 0 ? '今天' : away + '天後'}</small>` : ''}</td>
-        <td>${shortType(byCode.get(r.license_type)) || r.license_type}</td>
-        <td class="desc">${r.session ?? ''}場次 組別${r.grp ?? '-'}</td>
-        <td class="num">${quota}</td>
-        <td class="mini" title="${new Date(r.updated_at).toLocaleString('zh-TW', { hour12: false })}">${ago(r.updated_at)}</td>
-        <td>${r.quota > 0 ? `<a class="signup" href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">前往報名</a>` : ''}</td>`;
+        <td class="c-date"><span class="d">${esc(fmtDate(r.exam_date, r.weekday))}</span>${soon}${wk}</td>
+        <td class="c-ty">${esc(shortType(byCode.get(r.license_type)) || r.license_type)}</td>
+        <td class="c-sess"><span class="s">${esc(r.session ?? '')}場次・組別 ${esc(r.grp ?? '-')}</span>${note ? `<span class="note" title="${esc(note)}">${esc(note)}</span>` : ''}</td>
+        <td class="c-qty num">${quota}</td>
+        <td class="c-upd" title="${esc(absTime(r.updated_at))}">${ago(r.updated_at)}</td>
+        <td class="c-act">${r.quota > 0 ? `<a class="signup" href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">前往報名${EXTERNAL_ICON}</a>` : ''}</td>`;
       return tr;
     }),
   );
@@ -265,27 +281,36 @@ function renderEvents() {
   const byCode = new Map(data.licenseTypes.map((t) => [t.code, t]));
   const rows = data.events.filter((e) => !activeType || e.license_type === activeType).slice(0, 80);
   const ul = $('#events');
+  const more = $('#moreEvents');
   $('#evCount').textContent = rows.length ? `最近 ${rows.length} 筆` : '';
   if (!rows.length) {
     ul.innerHTML = '<li class="empty">還沒有記錄到變化。</li>';
+    more.hidden = true;
     return;
   }
   ul.replaceChildren(
     ...rows.map((e) => {
+      const kind = KIND_LABEL[e.kind] ? e.kind : 'other';
       const li = document.createElement('li');
+      li.className = `ev ev-${kind}`;
       const delta =
-        e.kind === 'released' || e.kind === 'increased' || e.kind === 'new' ? `→ ${e.new_quota} 位`
+        e.kind === 'released' || e.kind === 'increased' || e.kind === 'new' ? `→ <b>${esc(e.new_quota)} 位</b>`
         : e.kind === 'filled' ? '→ 額滿'
         : e.kind === 'gone' ? '→ 已移除'
-        : `${e.old_quota} → ${e.new_quota} 位`;
+        : `${esc(e.old_quota)} → ${esc(e.new_quota)} 位`;
       li.innerHTML = `
-        <div><span class="ev-kind ev-${e.kind}">${KIND_LABEL[e.kind] ?? e.kind}</span>
-          <strong>${shortType(byCode.get(e.license_type)) || e.license_type}</strong> · 考試日 ${fmtDate(e.exam_date)}</div>
-        <div>${delta}</div>
-        <div class="ev-time">${new Date(e.at).toLocaleString('zh-TW', { hour12: false })}</div>`;
+        <span class="ev-kind">${esc(KIND_LABEL[e.kind] ?? e.kind)}</span>
+        <div class="ev-main">
+          <strong>${esc(shortType(byCode.get(e.license_type)) || e.license_type)}</strong>
+          <div class="ev-sub">考試日 ${esc(fmtDate(e.exam_date))} ${delta}</div>
+        </div>
+        <time class="ev-time" datetime="${new Date(e.at).toISOString()}" title="${esc(absTime(e.at))}">${ago(e.at)}</time>`;
       return li;
     }),
   );
+  const hiddenCount = Math.max(0, rows.length - 8);
+  more.hidden = hiddenCount === 0 || ul.classList.contains('expanded');
+  more.textContent = `再顯示 ${hiddenCount} 筆`;
 }
 
 /* ---------- 事件 ---------- */
@@ -300,17 +325,28 @@ $('#typeChips').addEventListener('click', (e) => {
 $('#onlyOpen').addEventListener('change', renderTable);
 $('#onlyWeekend').addEventListener('change', renderTable);
 $('#switch').addEventListener('change', (e) => {
-  if (e.target.value) location.href = `/station/${e.target.value}${activeType ? `?type=${activeType}` : ''}`;
+  if (e.target.value) location.href = `/station/${e.target.value}${activeType ? `?type=${encodeURIComponent(activeType)}` : ''}`;
+});
+$('#moreEvents').addEventListener('click', () => {
+  $('#events').classList.add('expanded');
+  $('#moreEvents').hidden = true;
 });
 $('#share').addEventListener('click', async () => {
   const btn = $('#share');
+  const lbl = btn.querySelector('.lbl');
   try {
     await navigator.clipboard.writeText(location.href);
-    btn.textContent = '✅ 已複製';
+    lbl.textContent = '已複製';
+    btn.classList.add('done');
+    btn.setAttribute('aria-label', '已複製連結');
   } catch {
     prompt('複製這個網址：', location.href);
   }
-  setTimeout(() => (btn.textContent = '🔗 複製連結'), 1500);
+  setTimeout(() => {
+    lbl.textContent = '複製連結';
+    btn.classList.remove('done');
+    btn.setAttribute('aria-label', '複製連結');
+  }, 1500);
 });
 
 await load();

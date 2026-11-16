@@ -2,51 +2,65 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <!--HEAD-->
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#191d23" media="(prefers-color-scheme: dark)" />
 <link rel="stylesheet" href="/style.css" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛵</text></svg>" />
 </head>
 <body>
-<header>
+<header class="topbar">
   <div class="wrap head">
-    <h1><a href="/" class="home">🛵 監理站考照餘額監測</a><span class="sep">/</span><span id="crumb">載入中…</span></h1>
+    <div class="crumb">
+      <a href="/" class="brand" title="回到全台總覽">
+        <span class="logo" aria-hidden="true">🛵</span>
+        <span class="brand-t"><strong>考照餘額監測</strong></span>
+      </a>
+      <span class="sep" aria-hidden="true">/</span>
+      <span id="crumb">載入中…</span>
+    </div>
     <div class="status">
-      <span id="lastScan" class="pill">載入中…</span>
-      <button type="button" id="share" class="pill btn" title="複製這一頁的網址">🔗 複製連結</button>
+      <span id="lastScan" class="pill idle" role="status"><i class="dot" aria-hidden="true"></i><span class="t">載入中…</span></span>
+    </div>
+    <div class="actions">
+      <button type="button" id="share" class="iconbtn" title="複製這一頁的網址" aria-label="複製連結">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+        <span class="lbl">複製連結</span>
+      </button>
     </div>
   </div>
 </header>
 
 <main class="wrap">
-  <section class="panel sthead">
+  <section class="sthead">
     <div class="grow">
       <h2 id="stTitle">載入中…</h2>
-      <p class="mini" id="stMeta"></p>
+      <p class="addr" id="stMeta"></p>
     </div>
-    <label class="switch mini">換一站
+    <label class="switch">換一站
       <select id="switch"><option value="">選擇監理站</option></select>
     </label>
   </section>
 
-  <div class="line types">
+  <div class="typesrow">
     <span class="cap">照類</span>
-    <div id="typeChips" class="chips"></div>
+    <div id="typeChips" class="chips scrollx" role="group" aria-label="照類"></div>
   </div>
 
-  <section id="tiles" class="tiles"></section>
-  <p class="mini" id="scanState"></p>
+  <section id="tiles" class="tiles" aria-label="這一站的統計"></section>
+  <p class="scanstate" id="scanState"></p>
 
   <div class="cols">
-    <section class="panel">
-      <h2>完整場次表 <span id="count" class="count"></span></h2>
+    <section class="panel slotspanel" aria-labelledby="slotsTitle">
+      <div class="panelhead"><h2 id="slotsTitle">完整場次表</h2><span id="count" class="count"></span></div>
       <p class="hint">含額滿的場次。額滿的場次一旦有人退考就會變成有位，這裡會在下一輪掃描後更新。</p>
-      <div class="line">
+      <div class="toggles">
         <label class="chip check"><input type="checkbox" id="onlyOpen" /> 只看有位</label>
         <label class="chip check"><input type="checkbox" id="onlyWeekend" /> 只看假日</label>
       </div>
       <div class="tablewrap">
-        <table id="slots">
+        <table id="slots" class="grid slots">
           <thead>
             <tr>
               <th>考試日期</th>
@@ -54,7 +68,7 @@
               <th>場次</th>
               <th class="num">餘額</th>
               <th>最後變動</th>
-              <th></th>
+              <th><span class="sr">報名</span></th>
             </tr>
           </thead>
           <tbody><tr><td colspan="6" class="empty">載入中…</td></tr></tbody>
@@ -80,6 +94,7 @@
       <section class="panel">
         <h2>變化紀錄 <span id="evCount" class="count"></span></h2>
         <ul id="events" class="events"><li class="empty">載入中…</li></ul>
+        <button type="button" id="moreEvents" class="more-ev" hidden>顯示全部</button>
       </section>
     </aside>
   </div>
