@@ -68,7 +68,6 @@ async function load() {
   meta = mt;
   if (st.error) {
     $('#stTitle').textContent = st.error;
-    $('#crumb').textContent = '找不到';
     $('#slots tbody').innerHTML = '<tr><td colspan="6" class="empty">請從首頁選一個監理站。</td></tr>';
     fillSwitch();
     return;
@@ -94,10 +93,9 @@ function fillSwitch() {
 function render() {
   const { station, office } = data;
   document.title = `${station.name} 考照場次餘額`;
-  $('#crumb').textContent = station.name;
   $('#stTitle').textContent = station.name;
   $('#stMeta').innerHTML =
-    `${esc(station.address)} · ${esc(office?.name ?? '')} · <a href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">官網報名頁</a>`;
+    `${esc(station.address)} · ${esc(office?.name ?? '')} · <a href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">官網報名</a>`;
   $('#apiLink').href = `/api/station?dmvNo=${encodeURIComponent(dmvNo)}`;
   fillSwitch();
   renderLastScan();
@@ -168,18 +166,19 @@ function renderTiles() {
   const peakHours = peak ? byHour.map((n, h) => (n === peak ? h : -1)).filter((h) => h >= 0).slice(0, 2) : [];
 
   const tiles = [
-    { k: '現在有位', v: open.length ? `${open.length} 場` : '全額滿', sub: slots.length ? `共 ${slots.length} 個場次` : '沒有開放場次', good: open.length > 0 },
-    { k: '名額合計', v: seats, sub: '目前可報名的人數' },
-    { k: '最近一次釋位', v: last ? ago(last) : '—', sub: last ? absTime(last) : `${data.statsDays} 天內沒有釋位` },
-    { k: `${data.statsDays} 天釋位次數`, v: released, sub: released ? `平均每週 ${(released / (data.statsDays / 7)).toFixed(1)} 次` : '額滿後就沒再開過' },
-    { k: '釋位後多久被搶光', v: minutes(fill), sub: samples ? `${samples} 個樣本的中位數` : '樣本不足' },
-    { k: '最常釋位的時段', v: peakHours.length ? peakHours.map((h) => `${h}–${h + 1} 時`).join('、\n') : '—', sub: peak ? `各 ${peak} 次` : '—' },
+    { k: '現在有位', v: open.length || (slots.length ? '額滿' : '—'), u: slots.length ? ` / ${slots.length} 場` : '', tip: slots.length ? `${slots.length} 個場次裡有 ${open.length} 個還有位` : '沒有開放場次', good: open.length > 0 },
+    { k: '名額', v: seats, u: ' 位', tip: '目前可報名的人數' },
+    { k: '最近釋位', v: last ? ago(last) : '—', tip: last ? absTime(last) : `${data.statsDays} 天內沒有釋位` },
+    { k: `${data.statsDays} 天釋位`, v: released, u: ' 次', tip: released ? `平均每週 ${(released / (data.statsDays / 7)).toFixed(1)} 次` : '額滿後就沒再開過' },
+    { k: '釋位後搶光', v: minutes(fill), tip: samples ? `${samples} 個樣本的中位數` : '樣本不足' },
+    { k: '最常釋位', v: peakHours.length ? peakHours.map((h) => `${h}–${h + 1} 時`).join('、\n') : '—', tip: peak ? `各 ${peak} 次` : '還沒有釋位紀錄' },
   ];
   $('#tiles').replaceChildren(
     ...tiles.map((t) => {
       const d = document.createElement('div');
       d.className = `tile${t.good ? ' good' : ''}`;
-      d.innerHTML = `<span class="k">${esc(t.k)}</span><span class="v">${esc(t.v)}</span><span class="s">${esc(t.sub)}</span>`;
+      d.title = t.tip;
+      d.innerHTML = `<span class="k">${esc(t.k)}</span><span class="v">${esc(t.v)}${t.u ? `<small>${esc(t.u)}</small>` : ''}</span>`;
       return d;
     }),
   );
@@ -188,18 +187,18 @@ function renderTiles() {
 function renderScanState() {
   const types = typesInScope();
   const logs = data.scanLog.filter((l) => types.includes(l.license_type));
-  if (!logs.length) { $('#scanState').textContent = '這個組合還沒有被掃描過。'; return; }
+  if (!logs.length) { $('#scanState').innerHTML = '<span>還沒有掃描過</span>'; return; }
   const byCode = new Map(data.licenseTypes.map((t) => [t.code, t]));
   const name = (l) => shortType(byCode.get(l.license_type)) || l.license_type;
   const bad = logs.filter((l) => l.last_error_at && l.last_error_at > (l.last_ok ?? 0));
   const pruned = logs.filter((l) => !bad.includes(l) && l.empty_streak >= 5);
   const live = logs.filter((l) => !bad.includes(l) && !pruned.includes(l));
   const parts = [
-    ...live.map((l) => `<span>${esc(name(l))}：上次抓取 ${ago(l.last_ok)}</span>`),
-    ...bad.map((l) => `<span class="bad">${esc(name(l))}：抓取失敗（${esc(l.last_error)}）</span>`),
+    ...live.map((l) => `<span title="上次抓取：${esc(l.last_ok ? absTime(l.last_ok) : '—')}">${esc(name(l))} ${ago(l.last_ok)}</span>`),
+    ...bad.map((l) => `<span class="bad" title="${esc(l.last_error)}">${esc(name(l))} 抓取失敗</span>`),
   ];
   // 十種照類裡通常有一大半長期沒開場次，合併成一句就好，不要洗版
-  if (pruned.length) parts.push(`<span>${esc(pruned.map(name).join('、'))}：長期無場次，每 24 小時複查</span>`);
+  if (pruned.length) parts.push(`<span title="${esc(pruned.map(name).join('、'))}：長期沒有場次，改成每 24 小時複查">${pruned.length} 種照類長期無場次</span>`);
   $('#scanState').innerHTML = parts.join('');
 }
 
@@ -211,9 +210,9 @@ function renderTable() {
   rows = [...rows].sort((a, b) => a.exam_date.localeCompare(b.exam_date) || a.license_type.localeCompare(b.license_type) || a.sec_key.localeCompare(b.sec_key));
 
   const tbody = $('#slots tbody');
-  $('#count').textContent = rows.length ? `${rows.length} 個場次` : '';
+  $('#count').textContent = rows.length ? `${rows.length} 場` : '';
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">沒有符合條件的場次。</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">沒有符合條件的場次</td></tr>';
     return;
   }
   tbody.replaceChildren(
@@ -223,17 +222,18 @@ function renderTable() {
       if (r.quota <= 0) tr.className = 'full';
       const quota =
         r.quota < 0 ? '<span class="fullbadge">額滿</span>'
-        : `<span class="qty${r.quota <= 3 ? ' low' : ''}">${esc(r.quota)}</span><span class="m-unit">個名額</span>`;
+        : `<span class="qty${r.quota <= 3 ? ' low' : ''}">${esc(r.quota)}<span class="u"> 位</span></span>`;
       const soon = away <= 7 ? `<span class="tag soon">${away <= 0 ? '今天' : away + ' 天後'}</span>` : '';
       const wk = r.is_weekend ? '<span class="tag wk">假日</span>' : '';
       const note = sessionNote(r.sec_desc);
+      const sess = [r.session, r.grp != null && r.grp !== '' ? `組別 ${r.grp}` : ''].filter(Boolean).join('・');
       tr.innerHTML = `
         <td class="c-date"><span class="d">${esc(fmtDate(r.exam_date, r.weekday))}</span>${soon}${wk}</td>
         <td class="c-ty">${esc(shortType(byCode.get(r.license_type)) || r.license_type)}</td>
-        <td class="c-sess"><span class="s">${esc(r.session ?? '')}場次・組別 ${esc(r.grp ?? '-')}</span>${note ? `<span class="note" title="${esc(note)}">${esc(note)}</span>` : ''}</td>
+        <td class="c-sess"><span class="s">${esc(sess)}</span>${note ? `<span class="note" title="${esc(note)}">${esc(note)}</span>` : ''}</td>
         <td class="c-qty num">${quota}</td>
         <td class="c-upd" title="${esc(absTime(r.updated_at))}">${ago(r.updated_at)}</td>
-        <td class="c-act">${r.quota > 0 ? `<a class="signup" href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">前往報名${EXTERNAL_ICON}</a>` : ''}</td>`;
+        <td class="c-act">${r.quota > 0 ? `<a class="signup" href="${MVDIS_SIGNUP}" target="_blank" rel="noopener" title="前往監理服務網報名">報名${EXTERNAL_ICON}</a>` : ''}</td>`;
       return tr;
     }),
   );
@@ -264,9 +264,8 @@ function renderCharts() {
     s.byDay.forEach((n, d) => (byDay[d] += n));
   }
   const total = byHour.reduce((a, b) => a + b, 0);
-  $('#hourHint').textContent = total
-    ? `最近 ${data.statsDays} 天共 ${total} 次釋位（額滿 → 有位），依台灣時間的小時分布。`
-    : `最近 ${data.statsDays} 天沒有記錄到釋位。`;
+  $('#hourHint').textContent = `${data.statsDays} 天 ${total} 次`;
+  $('#hourHint').title = '釋位（額滿 → 有位）發生在台灣時間的哪個小時';
   bars($('#hourChart'), byHour, (h) => `${h}–${h + 1} 時`);
   const today = new Date(data.today);
   bars($('#dayChart'), byDay, (d) => {
@@ -282,9 +281,9 @@ function renderEvents() {
   const rows = data.events.filter((e) => !activeType || e.license_type === activeType).slice(0, 80);
   const ul = $('#events');
   const more = $('#moreEvents');
-  $('#evCount').textContent = rows.length ? `最近 ${rows.length} 筆` : '';
+  $('#evCount').textContent = rows.length ? `${rows.length} 筆` : '';
   if (!rows.length) {
-    ul.innerHTML = '<li class="empty">還沒有記錄到變化。</li>';
+    ul.innerHTML = '<li class="empty">還沒有記錄到變動</li>';
     more.hidden = true;
     return;
   }
@@ -294,15 +293,14 @@ function renderEvents() {
       const li = document.createElement('li');
       li.className = `ev ev-${kind}`;
       const delta =
-        e.kind === 'released' || e.kind === 'increased' || e.kind === 'new' ? `→ <b>${esc(e.new_quota)} 位</b>`
-        : e.kind === 'filled' ? '→ 額滿'
-        : e.kind === 'gone' ? '→ 已移除'
-        : `${esc(e.old_quota)} → ${esc(e.new_quota)} 位`;
+        e.kind === 'filled' || e.kind === 'gone' ? ''
+        : e.kind === 'released' || e.kind === 'new' || e.old_quota == null ? ` · <b>${esc(e.new_quota)} 位</b>`
+        : ` · ${esc(e.old_quota)} → <b>${esc(e.new_quota)} 位</b>`;
       li.innerHTML = `
         <span class="ev-kind">${esc(KIND_LABEL[e.kind] ?? e.kind)}</span>
         <div class="ev-main">
           <strong>${esc(shortType(byCode.get(e.license_type)) || e.license_type)}</strong>
-          <div class="ev-sub">考試日 ${esc(fmtDate(e.exam_date))} ${delta}</div>
+          <div class="ev-sub" title="考試日期 ${esc(e.exam_date)}"><span class="d">${esc(fmtDate(e.exam_date))}</span>${delta}</div>
         </div>
         <time class="ev-time" datetime="${new Date(e.at).toISOString()}" title="${esc(absTime(e.at))}">${ago(e.at)}</time>`;
       return li;
@@ -349,5 +347,48 @@ $('#share').addEventListener('click', async () => {
   }, 1500);
 });
 
+/* ---------- 頂部氛圍背景 ----------
+   桌面寬度、支援 WebGPU、沒有要求減少動態或省流量時，才從 CDN 延遲載入 shaders（MIT，鎖定版本，壓縮後約 700KB）；
+   其他情況留著 style.css 的靜態漸層。載入或初始化失敗都不影響頁面。 */
+const SHADERS_URL = 'https://cdn.jsdelivr.net/npm/shaders@4.0.7/js/+esm';
+const darkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+let aura = null;
+
+async function startAura() {
+  const box = $('.aura');
+  const canvas = box?.querySelector('canvas');
+  const wanted =
+    canvas && 'gpu' in navigator && window.matchMedia('(min-width: 721px)').matches &&
+    !window.matchMedia('(prefers-reduced-motion: reduce)').matches && !navigator.connection?.saveData;
+  if (!wanted) return;
+  try {
+    const { createShader } = await import(SHADERS_URL);
+    const css = getComputedStyle(document.documentElement);
+    const color = (n) => css.getPropertyValue(`--aura-${n}`).trim();
+    aura?.destroy();
+    aura = await createShader(
+      canvas,
+      {
+        components: [
+          { type: 'SolidColor', props: { color: color(4) } },
+          // 由上往下淡出的遮罩，讓漸層收在標題區，不延伸到資料表格後面
+          { type: 'Circle', id: 'fade', props: { visible: false, radius: 2, softness: 1, center: { x: 0.5, y: 0 } } },
+          { type: 'FlowingGradient', props: { colorA: color(1), colorB: color(2), colorC: color(3), colorD: color(4), colorSpace: 'oklab', speed: 0.3, distortion: 0.35, maskSource: 'fade' } },
+          { type: 'FilmGrain', props: { strength: darkScheme.matches ? 0.02 : 0.1 } },
+        ],
+      },
+      { disableTelemetry: true, onReady: () => box.classList.add('live') },
+    );
+  } catch (err) {
+    console.warn('氛圍背景沒有啟用，改用靜態漸層：', err);
+  }
+}
+darkScheme.addEventListener('change', () => {
+  if (!aura) return;
+  $('.aura').classList.remove('live');
+  startAura();
+});
+
 await load();
+(window.requestIdleCallback ?? ((fn) => setTimeout(fn, 200)))(() => startAura());
 setInterval(() => load().catch(console.error), REFRESH_MS);

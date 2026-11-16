@@ -2,6 +2,7 @@ const MVDIS_SIGNUP = 'https://www.mvdis.gov.tw/m3-emv-trn/exm/locations';
 const REFRESH_MS = 30_000;
 const WATCH_KEY = 'mvdis-watch:watchlist';
 const TOKEN_KEY = 'mvdis-watch:admin-token';
+const STAR_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg>';
 const EXTERNAL_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 
 const $ = (s) => document.querySelector(s);
@@ -169,8 +170,8 @@ function renderCards() {
   const total = [...agg.values()].reduce((x, a) => x + a.slots, 0);
   const seats = [...agg.values()].reduce((x, a) => x + a.seats, 0);
   $('#ovSummary').innerHTML = total
-    ? `全台 <b>${fmtNum(total)}</b> 個場次還有位，合計 <b>${fmtNum(seats)}</b> 個名額`
-    : '全台目前完全沒有餘額';
+    ? `<span><b>${fmtNum(total)}</b>場</span><span><b>${fmtNum(seats)}</b>位</span>`
+    : '全台額滿';
 
   const active = form.elements.lv1.value;
   const sorted = meta.offices
@@ -184,12 +185,12 @@ function renderCards() {
       b.className = `card${o.slots === 0 ? ' zero' : ''}${active === o.lv1 ? ' on' : ''}`;
       b.dataset.lv1 = o.lv1;
       b.setAttribute('aria-pressed', String(active === o.lv1));
+      b.title = `${o.total} 個監理站`;
       const short = o.name.replace(/（.*）/, '');
       const area = (o.name.match(/（(.*)）/) || [, ''])[1];
       b.innerHTML = `
         <span class="nm">${esc(short)}${area ? `<span class="area">${esc(area)}</span>` : ''}</span>
-        <span class="big">${o.slots === 0 ? '<b>全額滿</b>' : `<b>${fmtNum(o.slots)}</b><span>場有位</span>`}</span>
-        <span class="meta">${o.total} 站${o.slots ? ` · ${fmtNum(o.seats)} 個名額` : ''}</span>
+        <span class="big">${o.slots === 0 ? '<b>額滿</b>' : `<b>${fmtNum(o.slots)}</b>場<span class="seats">${fmtNum(o.seats)} 位</span>`}</span>
         <span class="bar"><i style="width:${(o.slots / max) * 100}%"></i></span>`;
       return b;
     }),
@@ -315,6 +316,7 @@ function renderActiveTags(f) {
   const badge = $('#filterCount');
   badge.hidden = n === 0;
   badge.textContent = String(n);
+  $('#clearFilters').hidden = !(tags.length || f.licenseType || f.group);
   $('#activeTags').replaceChildren(
     ...tags.map((t) => {
       const b = document.createElement('button');
@@ -341,19 +343,21 @@ function dateCell(r) {
 
 function sessCell(r) {
   const note = sessionNote(r.sec_desc);
-  return `<span class="s">${esc(r.session ?? '')}場次・組別 ${esc(r.grp ?? '-')}</span>${note ? `<span class="note" title="${esc(note)}">${esc(note)}</span>` : ''}`;
+  const s = [r.session, r.grp != null && r.grp !== '' ? `組別 ${r.grp}` : ''].filter(Boolean).join('・');
+  return `<span class="s">${esc(s)}</span>${note ? `<span class="note" title="${esc(note)}">${esc(note)}</span>` : ''}`;
 }
 
 function renderTable(rows, f = {}) {
   const tbody = $('#avail tbody');
-  $('#count').textContent = rows.length ? `${fmtNum(rows.length)} 個場次` : '';
+  $('#count').textContent = rows.length ? `${fmtNum(rows.length)} 場` : '';
+  $('#applyFilters').textContent = rows.length ? `看 ${fmtNum(rows.length)} 場` : '沒有符合的場次';
 
   if (!rows.length) {
     const why = f.weekendOnly
-      ? '目前全台都沒有開放週末假日場次。<br>監理站的假日場次是不定期加開的，取消「只看假日」可看平日場次。'
+      ? '目前沒有假日場次'
       : f.watchedOnly
-        ? '你追蹤的組合目前都額滿。<br>綁定通知後，一有人退考就會推播給你。'
-        : '目前沒有符合條件的餘額。<br>上方卡片可以看哪個區還有位。';
+        ? '追蹤的組合目前都額滿'
+        : '沒有符合條件的場次';
     tbody.innerHTML = `<tr><td colspan="6" class="empty">${why}</td></tr>`;
     return;
   }
@@ -366,12 +370,12 @@ function renderTable(rows, f = {}) {
       if (on) tr.className = 'watched';
       const label = `${stationName(r.dmv_no)}・${shortType(r.license_type)}`;
       tr.innerHTML = `
-        <td class="c-star"><button type="button" class="starbtn${on ? ' on' : ''}" data-key="${esc(key)}" aria-pressed="${on}" title="${on ? '取消追蹤' : '追蹤'}：${esc(label)}"><span aria-hidden="true">${on ? '★' : '☆'}</span><span class="m-lbl">${on ? '已追蹤' : '追蹤'}</span></button></td>
+        <td class="c-star"><button type="button" class="starbtn${on ? ' on' : ''}" data-key="${esc(key)}" aria-pressed="${on}" aria-label="追蹤 ${esc(label)}" title="${on ? '取消追蹤' : '追蹤'}：${esc(label)}">${STAR_ICON}</button></td>
         <td class="c-date">${dateCell(r)}</td>
         <td class="c-st"><a class="st" href="/station/${esc(r.dmv_no)}?type=${esc(r.license_type)}" title="看這一站的完整場次表與釋位統計">${esc(stationName(r.dmv_no))}</a><span class="ty"><span class="dotsep"> · </span>${esc(typeName(r.license_type))}</span></td>
-        <td class="c-qty num"><span class="qty${r.quota <= 3 ? ' low' : ''}">${esc(r.quota)}</span><span class="m-unit">個名額</span></td>
+        <td class="c-qty num"><span class="qty${r.quota <= 3 ? ' low' : ''}">${esc(r.quota)}<span class="u"> 位</span></span></td>
         <td class="c-sess">${sessCell(r)}</td>
-        <td class="c-act"><a class="signup" href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">前往報名${EXTERNAL_ICON}</a></td>`;
+        <td class="c-act"><a class="signup" href="${MVDIS_SIGNUP}" target="_blank" rel="noopener" title="前往監理服務網報名">報名${EXTERNAL_ICON}</a></td>`;
       return tr;
     }),
   );
@@ -380,17 +384,16 @@ function renderTable(rows, f = {}) {
 const KIND_LABEL = { released: '釋出', increased: '增加', decreased: '減少', filled: '額滿', new: '新場次', gone: '移除' };
 
 function eventDelta(e) {
-  if (e.kind === 'released' || e.kind === 'increased' || e.kind === 'new') return `→ <b>${esc(e.new_quota)} 位</b>`;
-  if (e.kind === 'filled') return '→ 額滿';
-  if (e.kind === 'gone') return '→ 已移除';
-  return `${esc(e.old_quota)} → ${esc(e.new_quota)} 位`;
+  if (e.kind === 'filled' || e.kind === 'gone') return '';
+  if (e.kind === 'released' || e.kind === 'new' || e.old_quota == null) return ` · <b>${esc(e.new_quota)} 位</b>`;
+  return ` · ${esc(e.old_quota)} → <b>${esc(e.new_quota)} 位</b>`;
 }
 
 function renderEvents(rows) {
   const ul = $('#events');
   const more = $('#moreEvents');
   if (!rows.length) {
-    ul.innerHTML = '<li class="empty">還沒有記錄到變化。<br>掃描累積一段時間後才會有資料。</li>';
+    ul.innerHTML = '<li class="empty">還沒有記錄到變動</li>';
     more.hidden = true;
     return;
   }
@@ -402,8 +405,8 @@ function renderEvents(rows) {
       li.innerHTML = `
         <span class="ev-kind">${esc(KIND_LABEL[e.kind] ?? e.kind)}</span>
         <div class="ev-main">
-          <a class="st" href="/station/${esc(e.dmv_no)}?type=${esc(e.license_type)}"><strong>${esc(stationName(e.dmv_no))}</strong></a> · ${esc(typeName(e.license_type))}
-          <div class="ev-sub">考試日 ${esc(fmtDate(e.exam_date))} ${eventDelta(e)}</div>
+          <a class="st" href="/station/${esc(e.dmv_no)}?type=${esc(e.license_type)}"><strong>${esc(stationName(e.dmv_no))}</strong></a> · ${esc(shortType(e.license_type))}
+          <div class="ev-sub" title="考試日期 ${esc(e.exam_date)}"><span class="d">${esc(fmtDate(e.exam_date))}</span>${eventDelta(e)}</div>
         </div>
         <time class="ev-time" datetime="${new Date(e.at).toISOString()}" title="${esc(absTime(e.at))}">${ago(e.at)}</time>`;
       return li;
@@ -437,14 +440,13 @@ function renderLastScan() {
 function renderHealth() {
   const h = meta?.health ?? {};
   const parts = [
-    `已掃描組合 ${h.combos ?? 0} / 360`,
-    `降頻（長期無場次） ${h.pruned ?? 0}`,
-    [`抓取異常 ${h.failing ?? 0}`, h.failing ? 'bad' : ''],
+    [`掃描 ${h.combos ?? 0}/360`, '已掃描的 監理站×照類 組合數'],
+    [`降頻 ${h.pruned ?? 0}`, '長期沒有場次、改成每 24 小時複查的組合數'],
+    [`異常 ${h.failing ?? 0}`, '最近一次抓取失敗的組合數', h.failing ? 'bad' : ''],
   ];
-  if (h.oldest) parts.push(`最舊一筆 ${absTime(h.oldest)}`);
+  if (h.oldest) parts.push([`最舊 ${absTime(h.oldest)}`, '最久沒更新的那一筆資料的時間']);
   $('#health').innerHTML = parts
-    .map((p) => (Array.isArray(p) ? p : [p, '']))
-    .map(([p, cls]) => `<span${cls ? ` class="${cls}"` : ''}>${esc(p)}</span>`)
+    .map(([p, title, cls]) => `<span${cls ? ` class="${cls}"` : ''} title="${esc(title)}">${esc(p)}</span>`)
     .join('');
 }
 
@@ -499,7 +501,7 @@ async function loadSubs() {
       div.className = 'subitem';
       const scope = s.watches.length
         ? s.watches.map((w) => `${stationName(w.dmvNo)}·${shortType(w.licenseType)}`).join('、')
-        : '全台所有組合（很吵）';
+        : '全台所有組合';
       const state = s.last_error
         ? `<span class="bad">最近失敗：${esc(s.last_error)}</span>`
         : s.last_sent_at
@@ -509,7 +511,7 @@ async function loadSubs() {
         <div class="grow">
           <div><strong>${esc(s.label || 'Discord')}</strong> <span class="mini">#${esc(s.id)}</span></div>
           <div class="tgt">${esc(s.target)}</div>
-          <div class="mini">盯著：${esc(scope)}</div>
+          <div class="mini">${esc(scope)}</div>
           <div class="mini">${state}</div>
         </div>
         <div class="acts">
@@ -524,8 +526,8 @@ async function loadSubs() {
 function watchSummary() {
   const n = watch.size;
   $('#watchSummary').textContent = n
-    ? `目前追蹤 ${n} 個組合：${[...watch].map((k) => { const [t, d] = k.split('|'); return `${stationName(d)}·${shortType(t)}`; }).join('、')}`
-    : '你還沒有 ★ 追蹤任何組合。現在建立訂閱會變成全台通吃，建議先回表格點幾個 ★。';
+    ? `追蹤中 ${n} 組：${[...watch].map((k) => { const [t, d] = k.split('|'); return `${stationName(d)}·${shortType(t)}`; }).join('、')}`
+    : '還沒有追蹤任何組合，現在建立會收到全台所有釋位。';
 }
 
 function closeNotify() {
@@ -682,9 +684,52 @@ async function tick() {
   } catch (err) { console.error(err); }
 }
 
+/* ---------- 頂部氛圍背景 ----------
+   桌面寬度、支援 WebGPU、沒有要求減少動態或省流量時，才從 CDN 延遲載入 shaders（MIT，鎖定版本，壓縮後約 700KB）；
+   其他情況留著 style.css 的靜態漸層。載入或初始化失敗都不影響頁面。 */
+const SHADERS_URL = 'https://cdn.jsdelivr.net/npm/shaders@4.0.7/js/+esm';
+const darkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+let aura = null;
+
+async function startAura() {
+  const box = $('.aura');
+  const canvas = box?.querySelector('canvas');
+  const wanted =
+    canvas && 'gpu' in navigator && !mobile.matches &&
+    !window.matchMedia('(prefers-reduced-motion: reduce)').matches && !navigator.connection?.saveData;
+  if (!wanted) return;
+  try {
+    const { createShader } = await import(SHADERS_URL);
+    const css = getComputedStyle(document.documentElement);
+    const color = (n) => css.getPropertyValue(`--aura-${n}`).trim();
+    aura?.destroy();
+    aura = await createShader(
+      canvas,
+      {
+        components: [
+          { type: 'SolidColor', props: { color: color(4) } },
+          // 由上往下淡出的遮罩，讓漸層收在標題區，不延伸到資料表格後面
+          { type: 'Circle', id: 'fade', props: { visible: false, radius: 2, softness: 1, center: { x: 0.5, y: 0 } } },
+          { type: 'FlowingGradient', props: { colorA: color(1), colorB: color(2), colorC: color(3), colorD: color(4), colorSpace: 'oklab', speed: 0.3, distortion: 0.35, maskSource: 'fade' } },
+          { type: 'FilmGrain', props: { strength: darkScheme.matches ? 0.02 : 0.1 } },
+        ],
+      },
+      { disableTelemetry: true, onReady: () => box.classList.add('live') },
+    );
+  } catch (err) {
+    console.warn('氛圍背景沒有啟用，改用靜態漸層：', err);
+  }
+}
+darkScheme.addEventListener('change', () => {
+  if (!aura) return;
+  $('.aura').classList.remove('live');
+  startAura();
+});
+
 filtersFromUrl();
 await loadMeta();
 filtersFromUrl();
 fillStations();
 await refresh();
 timer = setInterval(tick, REFRESH_MS);
+(window.requestIdleCallback ?? ((fn) => setTimeout(fn, 200)))(() => startAura());

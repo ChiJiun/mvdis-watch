@@ -5,28 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <!--HEAD-->
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-<meta name="theme-color" content="#191d23" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#1b2336" media="(prefers-color-scheme: dark)" />
 <link rel="stylesheet" href="/style.css" />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛵</text></svg>" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230b6bcb'/%3E%3Cg fill='none' stroke='white' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='7'/%3E%3Ccircle cx='12' cy='12' r='1.6'/%3E%3Cpath d='M5 12h5M14 12h5M12 14v5'/%3E%3C/g%3E%3C/svg%3E" />
 </head>
 <body>
+<div class="aura" aria-hidden="true"><canvas></canvas></div>
+
 <header class="topbar">
   <div class="wrap head">
+    <!-- 麵包屑的第二段就是換站選單，不另外放「換一站」 -->
     <div class="crumb">
-      <a href="/" class="brand" title="回到全台總覽">
-        <span class="logo" aria-hidden="true">🛵</span>
-        <span class="brand-t"><strong>考照餘額監測</strong></span>
+      <a href="/" class="brand" title="回到全台總覽" aria-label="回到全台總覽">
+        <span class="logo" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M3 12h7M14 12h7M12 14v7"/></svg></span>
+        <strong>考照餘額監測</strong>
       </a>
       <span class="sep" aria-hidden="true">/</span>
-      <span id="crumb">載入中…</span>
+      <select id="switch" class="crumbsel" aria-label="切換監理站"><option value="">選擇監理站</option></select>
     </div>
     <div class="status">
       <span id="lastScan" class="pill idle" role="status"><i class="dot" aria-hidden="true"></i><span class="t">載入中…</span></span>
     </div>
     <div class="actions">
       <button type="button" id="share" class="iconbtn" title="複製這一頁的網址" aria-label="複製連結">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
-        <span class="lbl">複製連結</span>
+        <svg class="ic i-def" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+        <svg class="ic i-ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        <span class="lbl sr" aria-live="polite">複製連結</span>
       </button>
     </div>
   </div>
@@ -34,40 +38,34 @@
 
 <main class="wrap">
   <section class="sthead">
-    <div class="grow">
-      <h2 id="stTitle">載入中…</h2>
-      <p class="addr" id="stMeta"></p>
-    </div>
-    <label class="switch">換一站
-      <select id="switch"><option value="">選擇監理站</option></select>
-    </label>
+    <h2 id="stTitle">載入中…</h2>
+    <p class="addr" id="stMeta"></p>
   </section>
 
   <div class="typesrow">
-    <span class="cap">照類</span>
     <div id="typeChips" class="chips scrollx" role="group" aria-label="照類"></div>
   </div>
 
   <section id="tiles" class="tiles" aria-label="這一站的統計"></section>
-  <p class="scanstate" id="scanState"></p>
 
   <div class="cols">
     <section class="panel slotspanel" aria-labelledby="slotsTitle">
-      <div class="panelhead"><h2 id="slotsTitle">完整場次表</h2><span id="count" class="count"></span></div>
-      <p class="hint">含額滿的場次。額滿的場次一旦有人退考就會變成有位，這裡會在下一輪掃描後更新。</p>
-      <div class="toggles">
-        <label class="chip check"><input type="checkbox" id="onlyOpen" /> 只看有位</label>
-        <label class="chip check"><input type="checkbox" id="onlyWeekend" /> 只看假日</label>
+      <div class="panelhead">
+        <h2 id="slotsTitle">場次</h2><span id="count" class="count"></span>
+        <div class="toggles">
+          <label class="chip check"><input type="checkbox" id="onlyOpen" /> 只看有位</label>
+          <label class="chip check"><input type="checkbox" id="onlyWeekend" /> 只看假日</label>
+        </div>
       </div>
       <div class="tablewrap">
         <table id="slots" class="grid slots">
           <thead>
             <tr>
-              <th>考試日期</th>
+              <th>日期</th>
               <th>照類</th>
               <th>場次</th>
               <th class="num">餘額</th>
-              <th>最後變動</th>
+              <th>變動</th>
               <th><span class="sr">報名</span></th>
             </tr>
           </thead>
@@ -78,21 +76,19 @@
 
     <aside class="stack">
       <section class="panel">
-        <h2>釋位時段分布</h2>
-        <p class="hint" id="hourHint">最近 30 天釋位（額滿 → 有位）發生在台灣時間哪個小時。</p>
-        <div id="hourChart" class="bars hours" role="img" aria-label="每小時釋位次數"></div>
-        <div class="axis"><span>0 時</span><span>6</span><span>12</span><span>18</span><span>23 時</span></div>
+        <h2>釋位時段 <span id="hourHint" class="count"></span></h2>
+        <div id="hourChart" class="bars hours" role="img" aria-label="最近幾天每小時（台灣時間）的釋位次數"></div>
+        <div class="axis" aria-hidden="true"><span>0</span><span>6</span><span>12</span><span>18</span><span>23 時</span></div>
       </section>
 
       <section class="panel">
-        <h2>每日釋位次數</h2>
-        <p class="hint">最近 30 天，最右邊是今天。</p>
-        <div id="dayChart" class="bars days" role="img" aria-label="每日釋位次數"></div>
-        <div class="axis"><span>30 天前</span><span>今天</span></div>
+        <h2>每日釋位</h2>
+        <div id="dayChart" class="bars days" role="img" aria-label="最近 30 天每日釋位次數"></div>
+        <div class="axis" aria-hidden="true"><span>30 天前</span><span>今天</span></div>
       </section>
 
       <section class="panel">
-        <h2>變化紀錄 <span id="evCount" class="count"></span></h2>
+        <h2>變動紀錄 <span id="evCount" class="count"></span></h2>
         <ul id="events" class="events"><li class="empty">載入中…</li></ul>
         <button type="button" id="moreEvents" class="more-ev" hidden>顯示全部</button>
       </section>
@@ -101,11 +97,10 @@
 </main>
 
 <footer class="wrap">
-  <p class="mini">這一頁的資料也能直接取用：<a id="apiLink" href="/api">JSON API</a>（30 秒快取，允許跨網域讀取）。</p>
+  <div id="scanState" class="health"></div>
   <p class="disclaimer">
-    資料每分鐘分批抓取自
-    <a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener">監理服務網考照預約報名</a>，
-    非即時，僅供參考。實際餘額與報名一律以官網為準；本站不代辦報名。
+    資料來自<a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener">監理服務網考照預約報名</a>，非即時；餘額與報名以官網為準，本站不代辦報名。
+    <a id="apiLink" href="/api">JSON API</a>
   </p>
 </footer>
 
