@@ -10,7 +10,7 @@
     "ebsGbPerInstance": 8
   },
   "lambda": {
-    "perGbSecond": 0.0000166667,
+    "perGbSecond": 1.66667e-05,
     "perMillionRequests": 0.2
   },
   "sqs": {
@@ -48,5 +48,19 @@
       "perMillionCpuMs": 0.02,
       "subrequestsPerInvocation": 1000
     }
+  },
+  "publicIpv4": {
+    "perHour": 0.005
+  },
+  "cloudwatchLogs": {
+    "perGbIngested": 0.5,
+    "perGbMonthStored": 0.03
+  },
+  "secretsManager": {
+    "perSecretMonth": 0.4
+  },
+  "cloudfront": {
+    "perTenThousandHttpsRequests": 0.01,
+    "perGbTransferOut": 0.085
   }
 }

@@ -1,7 +1,11 @@
-"""讀 RDS 的 scan_task_log／slot_event（psycopg 3，延遲 import）。
+"""讀 RDS 的 scan_task_log 與 replay schema（psycopg 3，延遲 import）。
 
 連線優先序和 worker 相同（契約第 3 節）：DATABASE_URL > DB_HOST + DB_SECRET_ARN。
 RDS 在 private subnet，這些函式要在 bastion（或 VPC 內其他主機）上執行。
+
+資料隔離（契約 §7.3）：replay 任務的 slot／slot_event／scan_log 在 `replay` schema；
+實驗只讀寫 `replay.*`，任務量測讀 `public.scan_task_log WHERE target = 'replay'`。
+這個模組裡沒有任何 SQL 會碰 public 的 slot／slot_event／scan_log（測試會檢查）。
 """
 from __future__ import annotations
 
@@ -13,13 +17,34 @@ from typing import Any, Callable, Dict, List, Optional
 RUN_ROWS_SQL = """
 SELECT task_id::text, run_id, license_type, dmv_no, tier, target,
        enqueued_at, started_at, committed_at, finished_at, outcome, error, worker_id, az, receive_count
-FROM scan_task_log WHERE run_id = %s
+FROM public.scan_task_log WHERE run_id = %s AND target = 'replay'
 """
 
 RELEASED_SQL = """
 SELECT license_type, dmv_no, exam_date::text, sec_key, at
-FROM slot_event WHERE run_id = %s AND kind = 'released'
+FROM replay.slot_event WHERE run_id = %s AND kind = 'released'
 """
+
+FINISHED_COUNT_SQL = """
+SELECT count(*) FROM public.scan_task_log WHERE run_id = %s AND target = 'replay' AND finished_at IS NOT NULL
+"""
+
+# 實驗前清空 replay schema 的三張表（契約 §7.3，擁有者為 replay 線）。只動 replay schema，絕不碰 public。
+REPLAY_TABLES = ("replay.slot", "replay.slot_event", "replay.scan_log")
+TRUNCATE_REPLAY_SQL = f"TRUNCATE {', '.join(REPLAY_TABLES)} RESTART IDENTITY"
+
+ALL_SQL = (RUN_ROWS_SQL, RELEASED_SQL, FINISHED_COUNT_SQL, TRUNCATE_REPLAY_SQL)
+
+_SECRET_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _db_secret(secret_arn: str) -> Dict[str, Any]:
+    """帳密只向 Secrets Manager 取一次（E2 的 DB 探針每秒重連，不該每次都打 Secrets Manager）。"""
+    if secret_arn not in _SECRET_CACHE:
+        from common.awsclients import client
+
+        _SECRET_CACHE[secret_arn] = json.loads(client("secretsmanager").get_secret_value(SecretId=secret_arn)["SecretString"])
+    return _SECRET_CACHE[secret_arn]
 
 
 def connect(settings: Dict[str, Optional[str]]) -> Any:
@@ -32,9 +57,7 @@ def connect(settings: Dict[str, Optional[str]]) -> Any:
     secret_arn = settings.get("db_secret_arn")
     if not host or not secret_arn:
         raise SystemExit("缺少資料庫設定：DATABASE_URL，或 DB_HOST＋DB_SECRET_ARN（terraform output rds_endpoint / db_secret_arn）")
-    from common.awsclients import client
-
-    secret = json.loads(client("secretsmanager").get_secret_value(SecretId=secret_arn)["SecretString"])
+    secret = _db_secret(secret_arn)
     return psycopg.connect(
         host=host.split(":")[0],
         port=int(settings.get("db_port") or 5432),
@@ -61,6 +84,29 @@ def fetch_released(conn: Any, run_id: str) -> List[Dict[str, Any]]:
     return _rows(conn, RELEASED_SQL, (run_id,))
 
 
+def truncate_replay_tables(conn: Any) -> None:
+    """清空 replay.slot／replay.slot_event／replay.scan_log（只有 replay schema）。"""
+    with conn.cursor() as cur:
+        cur.execute(TRUNCATE_REPLAY_SQL)
+
+
+def reset_replay_db(cfg: Dict[str, Optional[str]], *, dry_run: bool, skip: bool = False, log: Callable[[str], None] = print) -> bool:
+    """實驗前清空 replay schema；dry-run 只印出 SQL。回傳是否真的清空。"""
+    if skip:
+        log("略過清空 replay schema（--keep-replay-db）")
+        return False
+    if dry_run:
+        log(f"[dry-run] 會執行：{TRUNCATE_REPLAY_SQL}")
+        return False
+    conn = connect(cfg)
+    try:
+        truncate_replay_tables(conn)
+    finally:
+        conn.close()
+    log(f"已清空 {', '.join(REPLAY_TABLES)}")
+    return True
+
+
 def wait_run_finished(
     conn: Any,
     run_id: str,
@@ -75,7 +121,7 @@ def wait_run_finished(
     last = -1
     while time.time() < deadline:
         with conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM scan_task_log WHERE run_id = %s AND finished_at IS NOT NULL", (run_id,))
+            cur.execute(FINISHED_COUNT_SQL, (run_id,))
             done = cur.fetchone()[0]
         if done != last:
             log(f"  {run_id}: 已完成 {done}/{expected_tasks}")

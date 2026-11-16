@@ -9,9 +9,13 @@ from typing import Any, Dict, Optional
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
 
 
+def results_dir() -> str:
+    """結果根目錄；EXPERIMENTS_RESULTS_DIR 可覆寫（測試時寫到暫存目錄，不弄髒 results/）。"""
+    return os.environ.get("EXPERIMENTS_RESULTS_DIR") or RESULTS_DIR
+
+
 def write_result(experiment: str, name: str, data: Dict[str, Any], out_dir: Optional[str] = None) -> str:
-    # EXPERIMENTS_RESULTS_DIR：測試時把結果寫到暫存目錄，不弄髒 results/
-    out_dir = out_dir or os.environ.get("EXPERIMENTS_RESULTS_DIR") or RESULTS_DIR
+    out_dir = out_dir or results_dir()
     d = os.path.join(out_dir, experiment)
     os.makedirs(d, exist_ok=True)
     path = os.path.join(d, f"{name}.json")

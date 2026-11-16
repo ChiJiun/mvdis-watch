@@ -23,7 +23,7 @@ npm run typecheck
 | `GET /admin/stats` | 組合數、場次數、有位數、請求數、擾動事件數與目前設定 |
 | `GET /admin/events?after=<seq>&kind=released&limit=5000` | 擾動紀錄（E3 用來算「釋位 → 偵測」延遲） |
 
-`/admin/*` 之後兩個是契約以外、只給 experiments 用的端點。設定 `REPLAY_ADMIN_TOKEN` 時 `/admin/*` 要帶 `x-admin-token` 標頭。
+`/admin/*` 之後兩個是契約以外、只給 experiments 用的端點。`/admin/reset` 只重設 Replay 站自己的記憶體狀態，不連資料庫；資料庫裡 replay schema 的清空（契約 §7.3）由實驗腳本在每次實驗前執行（見 `aws/experiments/README.md`）。設定 `REPLAY_ADMIN_TOKEN` 時 `/admin/*` 要帶 `x-admin-token` 標頭。
 
 ## 資料模型
 

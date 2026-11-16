@@ -47,7 +47,21 @@ AWS Details 貼到 `~/.aws/credentials`（約 4 小時過期）。
 | 公開 API 入口 | `API_BASE_URL` | `cloudfront_url` | E1、E2（ALB 只收 CloudFront 帶 `X-Origin-Verify` 的請求，所以一律打 CloudFront） |
 | RDS identifier | `RDS_IDENTIFIER` | `rds_identifier` | E2 |
 | Replay 站 | `REPLAY_BASE_URL` | `replay_base_url` | E2、E3 |
-| 資料庫 | `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_SECRET_ARN`（或 `DATABASE_URL`） | `rds_endpoint`、`rds_port`、`db_name`、`db_secret_arn` | E1、E2、E3 讀 `scan_task_log` |
+| 資料庫 | `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_SECRET_ARN`（或 `DATABASE_URL`） | `rds_endpoint`、`rds_port`、`db_name`、`db_secret_arn` | E1、E2、E3 讀 `public.scan_task_log`（`target='replay'`）、E3 讀 `replay.slot_event`；實驗前清空 replay schema |
+
+## 實驗資料隔離（契約 §7.3）
+
+worker 處理 `target=replay` 任務時，`slot`／`slot_event`／`scan_log` 寫進 **`replay` schema**，和正式資料（`public`）完全分開：
+
+- 實驗期間公開 API／儀表板只讀 `public`，看不到 Replay 的假場次；`lastTick` 也不會被實驗推進。
+- 實驗結束、恢復 dispatcher 之後，live 掃描拿來比對的是 `public.slot`，不會碰到 Replay 寫的狀態，所以不會產生假的 `released`
+  推到 Discord（notifier 的 SNS filter 只收 `target=live` 是第二層保護）。
+- 實驗腳本讀的表：任務量測讀 `public.scan_task_log WHERE target = 'replay'`；E3 的偵測紀錄讀 `replay.slot_event`。
+  腳本裡沒有任何 SQL 碰 `public` 的 `slot`／`slot_event`／`scan_log`（單元測試會檢查）。
+- **實驗前清空 replay schema**：E1（有設定資料庫時）、E2、E3（每一階暖身前）會先執行
+  `TRUNCATE replay.slot, replay.slot_event, replay.scan_log RESTART IDENTITY`，讓每次實驗都從空的 replay 狀態開始；
+  不想清空時加 `--keep-replay-db`。只清 replay schema，`public` 與 `scan_task_log` 都不動（scan_task_log 靠 runId 區分）。
+  手動清空：`psql "$DATABASE_URL" -c 'TRUNCATE replay.slot, replay.slot_event, replay.scan_log RESTART IDENTITY'`。
 
 ## 實驗前的 infra 設定
 
@@ -59,8 +73,11 @@ AWS Details 貼到 `~/.aws/credentials`（約 4 小時過期）。
   這時實驗結果的 `scanTaskLog.rejected` 會大於 0、漏掃組數等於 360。
 - E2 前：`worker_min_size = 2`（預設 1），確保兩個 AZ 各有 worker；API ASG 同理。
 - E3 跑到 8 台：`worker_max_size >= 8`（預設就是 8）。
+- Replay 站的 `/admin/*` 預設不驗證身分（只在 VPC 內）：請確認 infra 的 Replay security group 只開放 worker SG 與 bastion，
+  或設定 `REPLAY_ADMIN_TOKEN`（實驗腳本目前不帶這個標頭，設定後要一併處理）。
 
-量測期間暫停每分鐘的排程（否則 dispatcher 送的任務會和實驗任務搶 worker），結束後恢復：
+量測期間暫停每分鐘的排程（否則 dispatcher 送的任務會和實驗任務搶 worker），結束後恢復。
+因為 replay 資料在獨立的 schema，恢復排程不需要額外清理正式資料：
 
 ```bash
 aws events disable-rule --name mvdis-dispatch-every-minute

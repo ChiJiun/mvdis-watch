@@ -15,8 +15,9 @@
   360 = 360 組每分鐘一輪（只能對 Replay 站做，代表系統能力上限）
 
 輸出兩種成本：
-  - scanning：只算「掃描」本身的邊際成本（worker 運算、SQS、NAT 流量、S3 寫入）→ 每千次掃描成本
-  - platform：加上兩種 AWS 模型都要付的固定成本（RDS Multi-AZ、2 個 NAT Gateway、ALB、API ASG 2 台）
+  - scanning：只算「掃描」本身的邊際成本（worker 運算、SQS、NAT 流量、S3 寫入、CloudWatch Logs）→ 每千次掃描成本
+  - platform：加上兩種 AWS 模型都要付的固定成本（RDS Multi-AZ、2 個 NAT Gateway、ALB、API ASG 2 台、
+    公有 IPv4 位址、Secrets Manager、CloudFront）
 """
 from __future__ import annotations
 
@@ -40,7 +41,9 @@ DEFAULTS = {
     # 原型在 Cloudflare 實測：一次 cron（14 組）CPU 最壞 6.45 ms
     "cfCpuMsPerInvocationWorst": 6.45,
     "cfScansPerInvocationMeasured": 14,
-    "htmlKbPerScan": 70.0,  # 官網整頁約 70 KB，走 NAT Gateway
+    # 走 NAT Gateway 的官網頁面大小。NAT 依實際傳輸位元組計費；fixture 未壓縮 68–93 KB（available.html 93 KB），
+    # 官網是否回 gzip 沒有驗證，這裡保守用未壓縮的最大值
+    "htmlKbPerScan": 93.0,
     "rawKbPerScanGz": 15.0,  # 存 S3 的 gzip 原始頁面
     "workerConcurrency": 5,  # 契約 WORKER_CONCURRENCY 預設
     "workerInstanceType": "t3.micro",
@@ -48,13 +51,23 @@ DEFAULTS = {
     "workerMinInstances": 2,  # 跨 2 個 AZ
     "lambdaMemoryMb": 256,
     "lambdaInitMsAmortized": 20.0,  # 冷啟動攤提到每次 invocation
-    "sqsRequestsPerScan": 3.0,  # Send + Receive + Delete
+    "sqsRequestsPerScan": 3.0,  # EC2：Send + Receive + Delete
+    # Lambda：Receive 由事件來源的 poller 做，已算在 lambdaPollRequestsPerMonth，每次掃描只剩 Send + Delete
+    "lambdaSqsRequestsPerScan": 2.0,
     "lambdaPollRequestsPerMonth": 650000,  # SQS 事件來源的長輪詢（約 5 個 poller × 每 20 秒一次）
+    "logKbPerScan": 1.0,  # worker 每次掃描寫的 log／EMF 指標（假設值）
+    "logRetentionMonths": 1.0,
     "apiInstances": 2,
     "apiInstanceType": "t3.micro",
     "rdsStorageGb": 20,
     "natGateways": 2,
     "albLcu": 1.0,
+    # 公有 IPv4：2 個 NAT 的 EIP＋ALB 每個 AZ 一個（bastion 只在實驗時開，不算）
+    "publicIpv4Count": 4,
+    "secrets": 2,  # DB 帳密、Discord webhook
+    # CloudFront 的量取決於公開 API 的使用量，不是掃描量；預設 0，有流量估計時再填
+    "cloudfrontRequestsPerMonth": 0,
+    "cloudfrontGbPerMonth": 0.0,
 }
 
 
@@ -67,12 +80,15 @@ def scans_per_month(per_min: float) -> float:
     return per_min * MIN_PER_MONTH
 
 
-def shared_scan_costs(P: Dict[str, Any], a: Dict[str, Any], scans: float) -> Dict[str, float]:
+def shared_scan_costs(P: Dict[str, Any], a: Dict[str, Any], scans: float, sqs_per_scan: float) -> Dict[str, float]:
     """EC2 與 Lambda 都要付、和掃描次數成正比的部分。"""
     nat_gb = scans * a["htmlKbPerScan"] / 1024 / 1024
     s3_gb_added = scans * a["rawKbPerScanGz"] / 1024 / 1024
+    log_gb = scans * a["logKbPerScan"] / 1024 / 1024
+    cw = P["cloudwatchLogs"]
     return {
-        "sqs": scans * a["sqsRequestsPerScan"] / 1e6 * P["sqs"]["perMillionRequests"],
+        "sqs": scans * sqs_per_scan / 1e6 * P["sqs"]["perMillionRequests"],
+        "cloudwatchLogs": log_gb * (cw["perGbIngested"] + a["logRetentionMonths"] * cw["perGbMonthStored"]),
         "natData": nat_gb * P["natGateway"]["perGbProcessed"],
         # 只算當月新增資料一個月的儲存（保守低估長期累積），加上 PUT
         "s3": s3_gb_added * P["s3"]["perGbMonth"] + scans / 1000 * P["s3"]["perThousandPut"],
@@ -86,6 +102,10 @@ def platform_fixed(P: Dict[str, Any], a: Dict[str, Any]) -> Dict[str, float]:
         "natHours": a["natGateways"] * P["natGateway"]["perHour"] * h,
         "alb": (P["alb"]["perHour"] + a["albLcu"] * P["alb"]["perLcuHour"]) * h,
         "apiAsg": a["apiInstances"] * (P["ec2"][a["apiInstanceType"]] * h + P["ec2"]["ebsGbPerInstance"] * P["ec2"]["ebsGp3PerGbMonth"]),
+        "publicIpv4": a["publicIpv4Count"] * P["publicIpv4"]["perHour"] * h,
+        "secretsManager": a["secrets"] * P["secretsManager"]["perSecretMonth"],
+        "cloudfront": a["cloudfrontRequestsPerMonth"] / 1e4 * P["cloudfront"]["perTenThousandHttpsRequests"]
+        + a["cloudfrontGbPerMonth"] * P["cloudfront"]["perGbTransferOut"],
     }
 
 
@@ -96,7 +116,7 @@ def ec2_model(P: Dict[str, Any], a: Dict[str, Any], per_min: float) -> Dict[str,
     n = max(a["workerMinInstances"], math.ceil(need))
     h = P["hoursPerMonth"]
     compute = n * (P["ec2"][a["workerInstanceType"]] * h + P["ec2"]["ebsGbPerInstance"] * P["ec2"]["ebsGp3PerGbMonth"])
-    parts = {"workerCompute": compute, **shared_scan_costs(P, a, scans)}
+    parts = {"workerCompute": compute, **shared_scan_costs(P, a, scans, a["sqsRequestsPerScan"])}
     return {"model": "ec2-asg", "instances": n, "instancesNeededRaw": need, "scansPerMonth": scans, "scanning": parts}
 
 
@@ -106,7 +126,7 @@ def lambda_model(P: Dict[str, Any], a: Dict[str, Any], per_min: float) -> Dict[s
     gb_s = scans * billed_s * a["lambdaMemoryMb"] / 1024
     compute = gb_s * P["lambda"]["perGbSecond"] + scans / 1e6 * P["lambda"]["perMillionRequests"]
     polling = a["lambdaPollRequestsPerMonth"] / 1e6 * P["sqs"]["perMillionRequests"]
-    parts = {"workerCompute": compute, "sqsPolling": polling, **shared_scan_costs(P, a, scans)}
+    parts = {"workerCompute": compute, "sqsPolling": polling, **shared_scan_costs(P, a, scans, a["lambdaSqsRequestsPerScan"])}
     concurrency = (per_min / 60.0) * billed_s
     return {"model": "lambda", "gbSeconds": gb_s, "avgConcurrency": concurrency, "scansPerMonth": scans, "scanning": parts}
 

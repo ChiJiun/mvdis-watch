@@ -49,7 +49,8 @@ python e1_scalability/enqueue_burst.py --dry-run          # 先乾跑
 python e1_scalability/enqueue_burst.py --tf-outputs outputs.json --count 3600 --watch
 ```
 
-`--watch` 會每 15 秒記錄 visible／inFlight 與 worker ASG 台數，直到佇列清空，再從 `scan_task_log` 讀這個 runId 的完成情況。
+`--watch` 會每 15 秒記錄 visible／inFlight 與 worker ASG 台數，直到佇列清空，再從 `public.scan_task_log`（`target='replay'`）讀這個 runId 的完成情況。
+有設定資料庫時，送任務前會先清空 replay schema（`--keep-replay-db` 可略過）；E1 只讀 `scan_task_log`，沒設定資料庫也能跑佇列量測。
 
 **量測**
 
@@ -57,8 +58,8 @@ python e1_scalability/enqueue_burst.py --tf-outputs outputs.json --count 3600 --
 |---|---|
 | 佇列清空時間 | 開始送出 → visible、inFlight、delayed 都歸零 |
 | 尖峰台數 | 監看期間 worker ASG 的最大 InService |
-| 完成耗時 | `scan_task_log`：最後 `finished_at` − 最早 `enqueued_at` |
-| 漏掃、錯誤、重送 | `scan_task_log` 的 outcome 與 `receive_count` |
+| 完成耗時 | `public.scan_task_log`（`target='replay'`）：最後 `finished_at` − 最早 `enqueued_at` |
+| 漏掃、錯誤、重送 | 同上的 outcome 與 `receive_count` |
 
 注意：worker ASG 依 `ApproximateNumberOfMessagesVisible / InService` 做 target tracking（infra 預設目標 50），
 3,600 則一進來就會觸發擴容。Replay 站的回應延遲（預設 500±250 ms）決定單台吞吐量，報告要寫明當時的設定

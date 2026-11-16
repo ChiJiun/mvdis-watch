@@ -191,8 +191,14 @@ test('考試日期從台灣時間今天＋3 天開始、不含星期日', () => 
 test('validateReset 拒絕未知欄位與越界值', () => {
   assert.deepEqual(validateReset({ flipProb: 0.5, delayMs: 0 }), { flipProb: 0.5, delayMs: 0 });
   assert.throws(() => validateReset({ flipprob: 0.5 }), /未知欄位/);
-  assert.throws(() => validateReset({ flipProb: 2 }), /介於/);
-  assert.throws(() => validateReset({ tickMs: -1 }), /負數/);
+  assert.throws(() => validateReset({ flipProb: 2 }), /flipProb=2 不合法/);
+  assert.throws(() => validateReset({ tickMs: -1 }), /tickMs=-1 不合法/);
+  // 和環境變數同一套範圍：maxEvents=0 會讓事件永遠是空的、tickMs 太小會吃滿 CPU、horizonDays 太大會卡住
+  assert.throws(() => validateReset({ maxEvents: 0 }), /maxEvents=0 不合法/);
+  assert.throws(() => validateReset({ tickMs: 1 }), /tickMs=1 不合法/);
+  assert.throws(() => validateReset({ horizonDays: 100000 }), /horizonDays=100000 不合法/);
+  assert.throws(() => validateReset({ delayMs: 1e9 }), /delayMs=1000000000 不合法/);
+  assert.deepEqual(validateReset({ tickMs: 0, maxEvents: 1 }), { tickMs: 0, maxEvents: 1 });
   assert.throws(() => validateReset({ seed: '1' }), /數字/);
   assert.throws(() => validateReset([1]), /JSON 物件/);
 });
@@ -206,6 +212,8 @@ test('loadConfig 讀環境變數並拒絕不合法值', () => {
   assert.equal(loadConfig({}).port, 8080);
   assert.throws(() => loadConfig({ REPLAY_FLIP_PROB: '1.5' }), /REPLAY_FLIP_PROB/);
   assert.throws(() => loadConfig({ PORT: 'abc' }), /PORT/);
+  assert.throws(() => loadConfig({ REPLAY_MAX_EVENTS: '0' }), /REPLAY_MAX_EVENTS/);
+  assert.throws(() => loadConfig({ REPLAY_TICK_MS: '5' }), /REPLAY_TICK_MS/);
 });
 
 async function withServer(

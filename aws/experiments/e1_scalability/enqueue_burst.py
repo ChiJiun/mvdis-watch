@@ -24,7 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from common import settings  # noqa: E402
 from common.analysis import summarize_run  # noqa: E402
-from common.results import write_result  # noqa: E402
+from common.db import reset_replay_db  # noqa: E402（psycopg 在 connect 內才 import）
+from common.results import results_dir, write_result  # noqa: E402
 from common.tasks import build_tasks, load_combos, new_run_id, send_tasks  # noqa: E402
 
 
@@ -37,6 +38,7 @@ def main(argv=None) -> int:
     p.add_argument("--watch", action="store_true", help="送完後監看到佇列清空並讀 scan_task_log")
     p.add_argument("--interval", type=float, default=15)
     p.add_argument("--timeout", type=float, default=3600, help="監看上限秒數")
+    p.add_argument("--keep-replay-db", action="store_true", help="不要在送任務前清空 replay schema（有設定 DB 時預設會清）")
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args(argv)
 
@@ -46,7 +48,9 @@ def main(argv=None) -> int:
     tasks = build_tasks(run_id, a.count, combos)
     print(f"runId = {run_id}，{len(tasks)} 則任務，涵蓋 {len({(t['licenseType'], t['dmvNo']) for t in tasks})} 組")
 
+    has_db = bool(cfg["db_host"] or os.environ.get("DATABASE_URL"))
     if a.dry_run:
+        reset_replay_db(cfg, dry_run=True, skip=a.keep_replay_db)
         send = send_tasks(cfg["queue_url"] or "", tasks, dry_run=True)
         write_result("e1", f"dry-run-{run_id}", {"dryRun": True, "runId": run_id, "send": send})
         return 0
@@ -60,6 +64,12 @@ def main(argv=None) -> int:
     before = queue_depth(sqs, cfg["queue_url"])
     if before["visible"] or before["inFlight"]:
         print(f"注意：佇列裡原本就有 {before} 則訊息，清空時間會被拉長")
+
+    # E1 只讀 scan_task_log，不讀 replay 表；有 DB 設定時順便清空，讓每次實驗都從同樣的 replay 狀態開始
+    if has_db:
+        reset_replay_db(cfg, dry_run=False, skip=a.keep_replay_db)
+    else:
+        print("未設定資料庫，略過清空 replay schema（不影響 E1 的佇列量測）")
 
     t0 = time.time()
     send = send_tasks(cfg["queue_url"], tasks, dry_run=False, concurrency=a.concurrency, sqs_client=sqs)
@@ -84,14 +94,14 @@ def main(argv=None) -> int:
         result["queueDrainSeconds"] = (rows[-1]["t"] - t0) if drained else None
         result["peakInService"] = max((r.get("inService", 0) for r in rows), default=None)
         result["timeline"] = rows
-        csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results", "e1", f"{run_id}-queue.csv")
+        csv_path = os.path.join(results_dir(), "e1", f"{run_id}-queue.csv")
         os.makedirs(os.path.dirname(csv_path), exist_ok=True)
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=sorted({k for r in rows for k in r}))
             w.writeheader()
             w.writerows(rows)
 
-        if cfg["db_host"] or os.environ.get("DATABASE_URL"):
+        if has_db:
             from common.db import connect, fetch_run_rows, wait_run_finished
 
             conn = connect(cfg)

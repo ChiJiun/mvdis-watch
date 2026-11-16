@@ -15,7 +15,7 @@
 ## 需要的 AWS 輸出值
 
 `scan_queue_url`、`worker_asg_name`、`api_asg_name`、`cloudfront_url`、`rds_identifier`、`replay_base_url`，
-以及讀 `scan_task_log` 的資料庫設定（`rds_endpoint`、`rds_port`、`db_name`、`db_secret_arn`）。
+以及讀 `public.scan_task_log` 與清空 replay schema 的資料庫設定（`rds_endpoint`、`rds_port`、`db_name`、`db_secret_arn`）。
 
 ## 前置條件
 
@@ -37,9 +37,10 @@ python e2_ha/fault_inject.py --tf-outputs outputs.json --az us-east-1a --confirm
 腳本流程：
 
 1. 前置檢查 RDS Multi-AZ／available，列出故障 AZ 內兩個 ASG 的 instance
-2. Replay 回應延遲調成 5 秒（`--replay-delay-ms`），讓一輪 360 組要跑好幾分鐘，故障才會落在掃描進行中
+2. 清空 replay schema（`--keep-replay-db` 可略過），Replay 回應延遲調成 5 秒（`--replay-delay-ms`），讓一輪 360 組要跑好幾分鐘，故障才會落在掃描進行中
 3. 灌 360 個 `target=replay` 任務，啟動 API／DB 探針
-4. `--fault-after`（預設 30）秒後，`ec2:TerminateInstances` 終止故障 AZ 內的所有 ASG instance
+4. `--fault-after`（預設 30）秒後，**重新抓一次**故障 AZ 內兩個 ASG 的 instance（這段時間 ASG 可能擴容），
+   再用 `ec2:TerminateInstances` 全部終止
    （刻意不用 ASG 的 `TerminateInstanceInAutoScalingGroup`，那是「有禮貌的」縮容，不像故障）
 5. 同時（`--rds-after` 秒後）`rds:RebootDBInstance(ForceFailover=True)`，每 2 秒輪詢狀態並讀 RDS 事件
 6. 等這個 runId 全部完成（RDS 切換期間會自動重連），再讓探針多跑 `--post-seconds` 秒
@@ -48,7 +49,11 @@ python e2_ha/fault_inject.py --tf-outputs outputs.json --az us-east-1a --confirm
 選項：
 
 - `--block-az`：實驗期間把故障 AZ 的 subnet 從兩個 ASG 的 `VPCZoneIdentifier` 移除，ASG 補機只會補在 AZ-b，
-  比較接近「整個 AZ 不能用」；結束後（含例外）會還原。不加的話，ASG 可能把替補的 instance 又開在 AZ-a。
+  比較接近「整個 AZ 不能用」。不加的話，ASG 可能把替補的 instance 又開在 AZ-a。
+  還原保證：先查完、驗證完兩個 ASG 才開始修改（任一個只有故障 AZ 的 subnet 就整個停止，什麼都不改）；
+  每改一個 ASG 之前就先記下原本的 `VPCZoneIdentifier`，所以中途任何一步丟例外，`finally` 都會還原已改過的 ASG。
+  還原時每個 ASG 各自處理，其中一個失敗（例如憑證過期）仍會繼續還原另一個與 Replay 延遲，
+  並印出手動還原用的 `aws autoscaling update-auto-scaling-group … --vpc-zone-identifier "…"` 指令，結果檔記在 `subnetRestoreFailed`。
 - `--no-rds`：只測 instance 故障。
 - 回傳碼：漏掃組數為 0 回 0，否則回 2。
 

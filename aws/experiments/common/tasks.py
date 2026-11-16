@@ -11,7 +11,7 @@ import os
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 CONTRACT_VERSION = 1
 # 和 aws/shared/contracts.ts 的 ScanTask 欄位一一對應；tests/test_tasks.py 會比對 TS 原始碼
@@ -21,6 +21,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 COMBOS_FILE = os.path.join(_HERE, "combos.json")
 
 SQS_BATCH_MAX = 10
+# 每批最多嘗試幾次。呼叫丟例外時批次可能其實已部分送出，重送會出現同 taskId 的重複訊息，worker 以 taskId 冪等處理（契約 §5）
+SEND_ATTEMPTS = 5
 
 
 class TargetGuardError(ValueError):
@@ -111,25 +113,56 @@ def send_tasks(
 
         sqs_client = client("sqs")
 
-    def send_batch(batch: List[Dict[str, Any]]) -> int:
+    def send_batch(batch: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+        """回傳 (送出成功的 taskId, 最後仍失敗的 taskId)。
+
+        - 回應裡的 Failed：SenderFault=True（訊息本身有問題）重試也沒用，直接算失敗；其餘重試。
+        - 呼叫本身丟例外（throttling、網路、憑證過期）：整批重試，不讓整個 run 中途結束。
+        """
         pending = {str(i): t for i, t in enumerate(batch)}
-        for attempt in range(4):
+        ok: List[str] = []
+        hard_failed: List[str] = []
+        for attempt in range(SEND_ATTEMPTS):
             now = int(time.time() * 1000)
             entries = []
             for i, t in pending.items():
                 t["enqueuedAt"] = now
                 assert_replay(t)
                 entries.append({"Id": i, "MessageBody": json.dumps(t, separators=(",", ":"))})
-            resp = sqs_client.send_message_batch(QueueUrl=queue_url, Entries=entries)
-            failed = {f["Id"] for f in resp.get("Failed", [])}
-            pending = {i: t for i, t in pending.items() if i in failed}
+            try:
+                resp = sqs_client.send_message_batch(QueueUrl=queue_url, Entries=entries)
+            except Exception as e:  # noqa: BLE001（botocore 的 ClientError／EndpointConnectionError 等）
+                log(f"  SendMessageBatch 失敗（第 {attempt + 1} 次，{type(e).__name__}: {e}），稍後重試")
+                time.sleep(0.2 * (2**attempt))
+                continue
+            ok.extend(pending[s["Id"]]["taskId"] for s in resp.get("Successful", []) if s["Id"] in pending)
+            retry = {}
+            for f in resp.get("Failed", []):
+                if f["Id"] not in pending:
+                    continue
+                if f.get("SenderFault"):
+                    hard_failed.append(pending[f["Id"]]["taskId"])
+                else:
+                    retry[f["Id"]] = pending[f["Id"]]
+            pending = retry
             if not pending:
-                return 0
+                break
             time.sleep(0.2 * (2**attempt))
-        return len(pending)
+        return ok, hard_failed + [t["taskId"] for t in pending.values()]
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        failed = sum(pool.map(send_batch, batches))
+        results = list(pool.map(send_batch, batches))
+    sent_ids = [i for ok, _ in results for i in ok]
+    failed_ids = [i for _, bad in results for i in bad]
+    failed = len(failed_ids)
     secs = time.time() - t0
-    log(f"已送出 {len(tasks) - failed} 則（失敗 {failed}），耗時 {secs:.1f}s")
-    return {"sent": len(tasks) - failed, "failed": failed, "planned": len(tasks), "batches": len(batches), "seconds": secs, "dryRun": False}
+    log(f"已送出 {len(sent_ids)} 則（失敗 {failed}），耗時 {secs:.1f}s")
+    return {
+        "sent": len(sent_ids),
+        "failed": failed,
+        "failedTaskIds": failed_ids,
+        "planned": len(tasks),
+        "batches": len(batches),
+        "seconds": secs,
+        "dryRun": False,
+    }

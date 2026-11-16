@@ -8,14 +8,16 @@
 
 流程：
   1. 前置檢查：RDS 必須是 Multi-AZ 且 available；列出兩個 ASG 在故障 AZ 的 instance
-  2. 把 Replay 站回應延遲調高（預設 5 秒），讓一輪 360 組要跑好幾分鐘，故障才會落在「掃描進行中」
+  2. 清空 replay schema（replay.slot／slot_event／scan_log；--keep-replay-db 可略過），
+     把 Replay 站回應延遲調高（預設 5 秒），讓一輪 360 組要跑好幾分鐘，故障才會落在「掃描進行中」
   3. 灌 360 個 target=replay 任務（同一 runId），同時啟動探針：
        - API 探針：每秒 GET <API_BASE_URL>/healthz（帶隨機參數繞過 CloudFront 快取）
        - DB 探針：每秒新開連線跑 SELECT 1（DNS 切換要新連線才看得到）
-  4. --fault-after 秒後：EC2 TerminateInstances 終止故障 AZ 內兩個 ASG 的所有 instance
-     （可選 --block-az：暫時把故障 AZ 的 subnet 從 ASG 移除，模擬「整個 AZ 不能用」，結束後還原）
+  4. --fault-after 秒後：重抓一次故障 AZ 內兩個 ASG 的 instance，EC2 TerminateInstances 全部終止
+     （可選 --block-az：暫時把故障 AZ 的 subnet 從 ASG 移除，模擬「整個 AZ 不能用」；
+      先驗證完所有 ASG 才開始改，每改一個就先記下原值，結束或例外時逐一還原，失敗會印出手動還原指令）
   5. 同時（或 --rds-after 秒後）RebootDBInstance(ForceFailover=True)，每 2 秒輪詢 RDS 狀態並讀 RDS 事件
-  6. 等這個 runId 全部完成，從 scan_task_log 算漏掃組數（目標 0）、重送數、各 AZ 分工、管線最長停擺
+  6. 等這個 runId 全部完成，從 public.scan_task_log（target=replay）算漏掃組數（目標 0）、重送數、各 AZ 分工、管線最長停擺
   7. 還原 Replay 延遲與 ASG subnet，寫 results/e2/<runId>.json
 
 被終止的 instance 手上的訊息會在 SQS 可見性逾時（60 秒）後重新出現，由其他 AZ 的 worker 接手，
@@ -36,6 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from common import settings  # noqa: E402
 from common.analysis import max_gap, outage_from_probe, summarize_run  # noqa: E402
+from common.db import reset_replay_db  # noqa: E402（psycopg 在 connect 內才 import）
 from common.results import write_result  # noqa: E402
 from common.tasks import build_tasks, load_combos, new_run_id, send_tasks  # noqa: E402
 
@@ -102,9 +105,9 @@ def instances_in_az(asg_client: Any, names: List[str], az: str) -> Dict[str, Lis
     return out
 
 
-def block_az(asg_client: Any, ec2: Any, names: List[str], az: str) -> Dict[str, str]:
-    """把故障 AZ 的 subnet 從 ASG 移除，回傳原本的 VPCZoneIdentifier 供還原。"""
-    original = {}
+def plan_block_az(asg_client: Any, ec2: Any, names: List[str], az: str) -> Dict[str, Tuple[str, str]]:
+    """先查完、驗證完所有 ASG，才開始改任何東西。回傳 {ASG 名稱: (原本的 VPCZoneIdentifier, 移除故障 AZ 後的值)}。"""
+    plan: Dict[str, Tuple[str, str]] = {}
     for n in names:
         g = asg_client.describe_auto_scaling_groups(AutoScalingGroupNames=[n])["AutoScalingGroups"][0]
         subnets = [s for s in g["VPCZoneIdentifier"].split(",") if s]
@@ -112,10 +115,35 @@ def block_az(asg_client: Any, ec2: Any, names: List[str], az: str) -> Dict[str, 
         keep = [s["SubnetId"] for s in info if s["AvailabilityZone"] != az]
         if not keep:
             raise SystemExit(f"{n} 只有 {az} 的 subnet，不能 --block-az")
-        original[n] = g["VPCZoneIdentifier"]
-        asg_client.update_auto_scaling_group(AutoScalingGroupName=n, VPCZoneIdentifier=",".join(keep))
-        print(f"  {n}: 暫時移除 {az} 的 subnet，保留 {keep}")
-    return original
+        plan[n] = (g["VPCZoneIdentifier"], ",".join(keep))
+    return plan
+
+
+def block_az(asg_client: Any, ec2: Any, names: List[str], az: str, original: Dict[str, str]) -> None:
+    """把故障 AZ 的 subnet 從 ASG 移除。
+
+    原本的 VPCZoneIdentifier 在呼叫 update 之前就寫進呼叫端傳入的 original，
+    所以不論中途哪一步丟例外，呼叫端的 finally 都拿得到需要還原的 ASG。
+    """
+    plan = plan_block_az(asg_client, ec2, names, az)
+    for n, (orig, new) in plan.items():
+        original[n] = orig
+        asg_client.update_auto_scaling_group(AutoScalingGroupName=n, VPCZoneIdentifier=new)
+        print(f"  {n}: 暫時移除 {az} 的 subnet，保留 {new}")
+
+
+def restore_subnets(asg_client: Any, original: Dict[str, str]) -> List[str]:
+    """逐一還原 subnet；每個 ASG 各自 try，某一個失敗不影響其他。回傳還原失敗的 ASG 名稱。"""
+    failed = []
+    for n, v in original.items():
+        try:
+            asg_client.update_auto_scaling_group(AutoScalingGroupName=n, VPCZoneIdentifier=v)
+            print(f"  {n}: 已還原 subnet")
+        except Exception as e:  # noqa: BLE001
+            failed.append(n)
+            print(f"  !! {n}: 還原 subnet 失敗（{type(e).__name__}: {e}），請手動執行：")
+            print(f"     aws autoscaling update-auto-scaling-group --auto-scaling-group-name {n} --vpc-zone-identifier \"{v}\"")
+    return failed
 
 
 def watch_rds(rds: Any, db_id: str, t_fault: float, timeout_s: float = 900) -> Dict[str, Any]:
@@ -163,6 +191,7 @@ def main(argv=None) -> int:
     p.add_argument("--replay-delay-ms", type=int, default=5000, help="實驗期間 Replay 站的回應延遲")
     p.add_argument("--post-seconds", type=float, default=60, help="全部完成後探針再跑幾秒")
     p.add_argument("--timeout", type=float, default=1200, help="等這一輪完成的上限秒數")
+    p.add_argument("--keep-replay-db", action="store_true", help="不要在實驗前清空 replay schema（replay.slot／slot_event／scan_log）")
     p.add_argument("--run-id")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--confirm", action="store_true", help="實跑必須加：確認要終止 instance 並切換 RDS")
@@ -175,12 +204,13 @@ def main(argv=None) -> int:
 
     plan = [
         f"前置檢查 RDS {cfg['rds_id'] or '<RDS_IDENTIFIER>'} 為 Multi-AZ／available",
+        ("不清空 replay schema" if a.keep_replay_db else "清空 replay schema（TRUNCATE replay.slot, replay.slot_event, replay.scan_log）"),
         f"Replay {cfg['replay_url'] or '<REPLAY_BASE_URL>'} 回應延遲設為 {a.replay_delay_ms} ms",
         f"灌 {len(tasks)} 則 target=replay 任務（runId={run_id}），啟動 API／DB 探針（每秒一次）",
         f"{a.fault_after:.0f} 秒後終止 {a.az} 內 ASG {cfg['worker_asg'] or '<WORKER_ASG_NAME>'}、{cfg['api_asg'] or '<API_ASG_NAME>'} 的所有 instance"
         + ("（並暫時移除該 AZ 的 subnet）" if a.block_az else ""),
         "不切換 RDS" if a.no_rds else f"再 {a.rds_after:.0f} 秒後 RebootDBInstance(ForceFailover=True)",
-        f"等 runId 完成（上限 {a.timeout:.0f}s），從 scan_task_log 算漏掃組數，探針再跑 {a.post_seconds:.0f}s",
+        f"等 runId 完成（上限 {a.timeout:.0f}s），從 public.scan_task_log 算漏掃組數，探針再跑 {a.post_seconds:.0f}s",
         "還原 Replay 延遲" + ("與 ASG subnet" if a.block_az else ""),
     ]
     print("E2 步驟：")
@@ -188,6 +218,7 @@ def main(argv=None) -> int:
         print(f"  {i}. {s}")
 
     if a.dry_run:
+        reset_replay_db(cfg, dry_run=True, skip=a.keep_replay_db)
         send_tasks(cfg["queue_url"] or "", tasks, dry_run=True)
         write_result("e2", f"dry-run-{run_id}", {"dryRun": True, "runId": run_id, "az": a.az, "plan": plan})
         return 0
@@ -212,6 +243,7 @@ def main(argv=None) -> int:
     if not any(targets.values()):
         raise SystemExit(f"{a.az} 內沒有任何 ASG instance，這樣測不到 AZ 故障")
 
+    reset_replay_db(cfg, dry_run=False, skip=a.keep_replay_db)
     replay_before = replay_admin.stats(cfg["replay_url"])
     replay_admin.reset(cfg["replay_url"], delayMs=a.replay_delay_ms)
     original_subnets: Dict[str, str] = {}
@@ -226,8 +258,13 @@ def main(argv=None) -> int:
         time.sleep(max(0.0, t_enqueue + a.fault_after - time.time()))
 
         if a.block_az:
-            original_subnets = block_az(asg, ec2, [cfg["worker_asg"], cfg["api_asg"]], a.az)
+            block_az(asg, ec2, [cfg["worker_asg"], cfg["api_asg"]], a.az, original_subnets)
+        # 灌任務到故障之間 ASG 可能在故障 AZ 擴容，終止前重抓一次（仍只取兩個 ASG 的 instance）
+        targets = instances_in_az(asg, [cfg["worker_asg"], cfg["api_asg"]], a.az)
+        result["targets"] = targets
         ids = [i for v in targets.values() for i in v]
+        if not ids:
+            raise SystemExit(f"故障時 {a.az} 內已經沒有 ASG instance")
         t_fault = time.time()
         ec2.terminate_instances(InstanceIds=ids)
         print(f"已終止 {len(ids)} 台 instance @ {t_fault:.0f}")
@@ -259,9 +296,9 @@ def main(argv=None) -> int:
     finally:
         api_probe.stop()
         db_probe.stop()
-        for n, v in original_subnets.items():
-            asg.update_auto_scaling_group(AutoScalingGroupName=n, VPCZoneIdentifier=v)
-            print(f"  {n}: 已還原 subnet")
+        failed_restore = restore_subnets(asg, original_subnets)
+        if failed_restore:
+            result["subnetRestoreFailed"] = failed_restore
         try:
             replay_admin.reset(cfg["replay_url"], delayMs=replay_before.get("delayMs", 500))
         except Exception as e:  # noqa: BLE001

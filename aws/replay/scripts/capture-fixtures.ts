@@ -40,12 +40,28 @@ const TARGETS: Target[] = [
 
 type Budget = { limit: number; used: number; lastAt: number | null; log: Array<{ at: string; name: string; status: number | string }> };
 
+/**
+ * 讀預算帳本。帳本已 commit 進 repo，讀不到（不存在、JSON 壞掉、有 git 衝突標記、欄位不對）一律停止，
+ * 絕不當成「還沒用過」重新從 0 開始算，否則預算可以被意外歸零。
+ */
 async function loadBudget(): Promise<Budget> {
+  let text: string;
   try {
-    return JSON.parse(await readFile(BUDGET_FILE, 'utf8')) as Budget;
-  } catch {
-    return { limit: BUDGET_LIMIT, used: 0, lastAt: null, log: [] };
+    text = await readFile(BUDGET_FILE, 'utf8');
+  } catch (e) {
+    throw new Error(`讀不到預算帳本 ${BUDGET_FILE}（${(e as Error).message}）。這個檔已 commit 進 repo，請從 git 還原，不要重建。`);
   }
+  let b: Budget;
+  try {
+    b = JSON.parse(text) as Budget;
+  } catch (e) {
+    throw new Error(`預算帳本 ${BUDGET_FILE} 不是合法 JSON（${(e as Error).message}），請手動修好（例如解決 git 衝突）後再執行。`);
+  }
+  const okNum = (n: unknown) => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+  if (!b || !okNum(b.used) || !okNum(b.limit) || !Array.isArray(b.log) || (b.lastAt !== null && !okNum(b.lastAt)) || b.used < b.log.length) {
+    throw new Error(`預算帳本 ${BUDGET_FILE} 欄位不合法（used／limit／lastAt／log），請手動檢查後再執行。`);
+  }
+  return b;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

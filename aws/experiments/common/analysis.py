@@ -140,11 +140,33 @@ def speedup_table(durations_by_n: Dict[int, float]) -> List[Dict[str, Any]]:
     return out
 
 
-def detection_latency(flips: List[Dict[str, Any]], released: List[Dict[str, Any]], window_end_ms: Optional[float] = None) -> Dict[str, Any]:
-    """E3：Replay 端的釋位（/admin/events kind=released）→ worker 寫入 slot_event(kind=released) 的延遲。
+def last_scan_start_by_combo(rows: List[Dict[str, Any]]) -> Dict[Tuple[str, str], float]:
+    """每個組合在這一輪最後一次開始抓取的時間（scan_task_log.started_at），E3 判斷釋位「還來不來得及被看到」用。"""
+    out: Dict[Tuple[str, str], float] = {}
+    for r in rows:
+        if r.get("started_at") is None:
+            continue
+        k = (r["license_type"], r["dmv_no"])
+        out[k] = max(out.get(k, float("-inf")), float(r["started_at"]))
+    return out
 
-    同一個場次 (licenseType, dmvNo, examDate, secKey) 取「釋位之後第一筆偵測」。
-    若同一場次在被偵測前又翻回額滿，該次釋位本來就看不到，計為 undetected（不是錯誤）。
+
+def detection_latency(
+    flips: List[Dict[str, Any]],
+    released: List[Dict[str, Any]],
+    window_end_ms: Optional[float] = None,
+    last_scan_start_ms: Optional[Dict[Tuple[str, str], float]] = None,
+) -> Dict[str, Any]:
+    """E3：Replay 端的釋位（/admin/events）→ worker 寫入 replay.slot_event(kind=released) 的延遲。
+
+    flips 是 Replay 的擾動事件（released 與 filled 都要給）；released 是 DB 裡這一輪的偵測紀錄。
+    每一筆 Replay 釋位歸到下列其中一類：
+      - afterLastScan：發生在該組合這一輪最後一次開始抓取之後（或 window_end_ms 之後），本來就不可能被這一輪看到，不列入分母。
+        沒有給 last_scan_start_ms 時只用 window_end_ms 判斷。
+      - reverted：同一場次在被偵測之前就又翻回額滿（Replay 有 filled 事件），任何掃描都看不到這次釋位。
+        偵測時間用的是提交時間，抓取當下其實看到了、但在提交前翻回額滿的情況也會被歸到這裡（以預設擾動頻率很少見）。
+      - detected：取「釋位之後第一筆偵測」，延遲 = 偵測時間 − 釋位時間。
+      - undetected：其餘（可偵測卻沒偵測到）。正常應該是 0，可當作正確性檢查。
     """
     by_key: Dict[Tuple[str, str, str, str], List[float]] = {}
     for e in released:
@@ -152,24 +174,41 @@ def detection_latency(flips: List[Dict[str, Any]], released: List[Dict[str, Any]
         by_key.setdefault(k, []).append(float(e["at"]))
     for v in by_key.values():
         v.sort()
+    filled_by_key: Dict[Tuple[str, str, str, str], List[float]] = {}
+    for f in flips:
+        if f.get("kind") == "filled":
+            filled_by_key.setdefault((f["licenseType"], f["dmvNo"], f["examDate"], f["secKey"]), []).append(float(f["at"]))
 
     lat: List[float] = []
-    undetected = 0
+    undetected = reverted = after_last_scan = 0
     for f in flips:
         if f.get("kind") != "released":
             continue
-        if window_end_ms is not None and f["at"] > window_end_ms:
+        at = float(f["at"])
+        if window_end_ms is not None and at > window_end_ms:
+            after_last_scan += 1
             continue
+        if last_scan_start_ms is not None:
+            last = last_scan_start_ms.get((f["licenseType"], f["dmvNo"]))
+            if last is None or at >= last:
+                after_last_scan += 1
+                continue
         k = (f["licenseType"], f["dmvNo"], f["examDate"], f["secKey"])
-        hit = next((t for t in by_key.get(k, []) if t >= f["at"]), None)
-        if hit is None:
+        hit = next((t for t in by_key.get(k, []) if t >= at), None)
+        refill = next((t for t in filled_by_key.get(k, []) if t > at), None)
+        if refill is not None and (hit is None or refill < hit):
+            reverted += 1
+        elif hit is None:
             undetected += 1
         else:
-            lat.append(hit - f["at"])
+            lat.append(hit - at)
     return {
-        "flips": len(lat) + undetected,
+        "flips": len(lat) + undetected + reverted + after_last_scan,
+        "detectable": len(lat) + undetected,
         "detected": len(lat),
         "undetected": undetected,
+        "reverted": reverted,
+        "afterLastScan": after_last_scan,
         "p50Ms": percentile(lat, 50),
         "p95Ms": percentile(lat, 95),
         "maxMs": max(lat) if lat else None,

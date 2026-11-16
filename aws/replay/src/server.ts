@@ -19,6 +19,7 @@ import {
   ReplayState,
   type SlotQuery,
 } from './generator.ts';
+import { checkParam, PARAM_RULES, type ParamKey } from './config.ts';
 
 export const LOCATIONS_PATH = '/m3-emv-trn/exm/locations';
 const MAX_BODY = 16 * 1024;
@@ -32,8 +33,6 @@ export type ServerOptions = {
 };
 
 export type ResetBody = Partial<ReplayConfig> & Partial<Pick<ServerOptions, 'delayMs' | 'jitterMs'>>;
-
-const CONFIG_KEYS: Array<keyof ReplayConfig> = ['seed', 'flipProb', 'tickMs', 'flipsPerTick', 'fullRatio', 'horizonDays', 'maxEvents'];
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -67,11 +66,9 @@ export function validateReset(raw: unknown): ResetBody {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('body 必須是 JSON 物件');
   const out: Record<string, number> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (!(CONFIG_KEYS as string[]).includes(k) && k !== 'delayMs' && k !== 'jitterMs') throw new Error(`未知欄位：${k}`);
+    if (!Object.hasOwn(PARAM_RULES, k)) throw new Error(`未知欄位：${k}`);
     if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${k} 必須是數字`);
-    if ((k === 'flipProb' || k === 'fullRatio') && (v < 0 || v > 1)) throw new Error(`${k} 必須介於 0 和 1`);
-    if (k !== 'seed' && k !== 'flipProb' && k !== 'fullRatio' && v < 0) throw new Error(`${k} 不能是負數`);
-    out[k] = v;
+    out[k] = checkParam(k as ParamKey, v);
   }
   return out as ResetBody;
 }

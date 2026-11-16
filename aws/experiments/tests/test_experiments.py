@@ -86,8 +86,12 @@ class TestTasks(unittest.TestCase):
             for e in Entries:
                 body = json.loads(e["MessageBody"])
                 assert body["target"] == "replay"
-            # 第一次呼叫讓 Id "0" 失敗一次
-            return {"Failed": [{"Id": "0"}]} if len(calls) == 1 else {}
+            # 第一次呼叫讓 Id "0" 失敗一次（SenderFault=False，可重試）
+            failed = {"0"} if len(calls) == 1 else set()
+            return {
+                "Successful": [{"Id": e["Id"]} for e in Entries if e["Id"] not in failed],
+                "Failed": [{"Id": i, "SenderFault": False} for i in failed],
+            }
 
         sqs = mock.Mock()
         sqs.send_message_batch.side_effect = fake_send
@@ -96,6 +100,39 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(r["sent"], 25)
         self.assertEqual(r["failed"], 0)
         self.assertEqual(sorted(calls), [1, 5, 10, 10])
+        self.assertEqual(r["failedTaskIds"], [])
+
+    def test_send_tasks_retries_when_call_raises_and_reports_failed_ids(self):
+        ts = tasks.build_tasks("r3", 12)
+        state = {"n": 0}
+
+        def flaky(QueueUrl, Entries):  # noqa: N803
+            state["n"] += 1
+            if state["n"] == 1:
+                raise RuntimeError("ThrottlingException")  # 整批呼叫丟例外 → 重試，不中斷整個 run
+            # Id "1" 是 SenderFault（訊息本身有問題），重試沒有意義，直接算失敗
+            bad = {"1"} if len(Entries) == 10 else set()
+            return {
+                "Successful": [{"Id": e["Id"]} for e in Entries if e["Id"] not in bad],
+                "Failed": [{"Id": i, "SenderFault": True} for i in bad],
+            }
+
+        sqs = mock.Mock()
+        sqs.send_message_batch.side_effect = flaky
+        with redirect_stdout(io.StringIO()), mock.patch("time.sleep"):
+            r = tasks.send_tasks("q", ts, dry_run=False, sqs_client=sqs, concurrency=1)
+        self.assertEqual(r["sent"], 11)
+        self.assertEqual(r["failed"], 1)
+        self.assertEqual(r["failedTaskIds"], [ts[1]["taskId"]])
+
+    def test_send_tasks_gives_up_after_max_attempts(self):
+        ts = tasks.build_tasks("r4", 3)
+        sqs = mock.Mock()
+        sqs.send_message_batch.side_effect = RuntimeError("網路斷線")
+        with redirect_stdout(io.StringIO()), mock.patch("time.sleep"):
+            r = tasks.send_tasks("q", ts, dry_run=False, sqs_client=sqs, concurrency=1)
+        self.assertEqual(sqs.send_message_batch.call_count, tasks.SEND_ATTEMPTS)
+        self.assertEqual((r["sent"], r["failed"]), (0, 3))
 
     def test_scan_task_keys_match_contracts_ts(self):
         with open(os.path.join(REPO, "aws", "shared", "contracts.ts"), encoding="utf-8") as f:
@@ -174,23 +211,155 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual([r["speedup"] for r in t], [1.0, 2.0, 3.2, 5.0])
         self.assertEqual(t[-1]["efficiency"], 5.0 / 8)
 
-    def test_detection_latency_matches_first_detection_after_flip(self):
+    def test_detection_latency_classifies_flips(self):
+        def flip(kind, at, lt="3", dmv="63", d="2026-12-01", k="2:25"):
+            return {"kind": kind, "at": at, "licenseType": lt, "dmvNo": dmv, "examDate": d, "secKey": k}
+
         flips = [
-            {"kind": "released", "at": 1000, "licenseType": "3", "dmvNo": "63", "examDate": "2026-12-01", "secKey": "2:25"},
-            {"kind": "released", "at": 5000, "licenseType": "3", "dmvNo": "63", "examDate": "2026-12-01", "secKey": "2:25"},
-            {"kind": "filled", "at": 6000, "licenseType": "3", "dmvNo": "63", "examDate": "2026-12-01", "secKey": "2:25"},
-            {"kind": "released", "at": 7000, "licenseType": "A", "dmvNo": "74", "examDate": "2026-12-02", "secKey": "1:3"},
-            {"kind": "released", "at": 99999, "licenseType": "A", "dmvNo": "74", "examDate": "2026-12-02", "secKey": "1:3"},
+            flip("released", 1000),  # 4000 偵測到 → detected，延遲 3000
+            flip("released", 5000),  # 6000 翻回額滿、9000 才有偵測 → reverted（任何掃描都看不到）
+            flip("filled", 6000),
+            flip("released", 7000, "A", "74", "2026-12-02", "1:3"),  # 可偵測卻沒偵測到 → undetected
+            flip("released", 30000, "A", "74", "2026-12-02", "1:3"),  # 在該組最後一次開始抓取之後 → afterLastScan
+            flip("released", 99999, "A", "74", "2026-12-02", "1:3"),  # window 之後 → afterLastScan
         ]
         released = [
             {"license_type": "3", "dmv_no": "63", "exam_date": "2026-12-01", "sec_key": "2:25", "at": 4000},
             {"license_type": "3", "dmv_no": "63", "exam_date": "2026-12-01", "sec_key": "2:25", "at": 9000},
         ]
-        r = analysis.detection_latency(flips, released, window_end_ms=50000)
-        self.assertEqual(r["flips"], 3)
-        self.assertEqual(r["detected"], 2)
-        self.assertEqual(r["undetected"], 1)
-        self.assertEqual(r["p50Ms"], 3500.0)
+        rows = [
+            {"license_type": "3", "dmv_no": "63", "started_at": 8500},
+            {"license_type": "A", "dmv_no": "74", "started_at": 8000},
+            {"license_type": "A", "dmv_no": "74", "started_at": 20000},
+            {"license_type": "H", "dmv_no": "83", "started_at": None},
+        ]
+        last = analysis.last_scan_start_by_combo(rows)
+        self.assertEqual(last, {("3", "63"): 8500.0, ("A", "74"): 20000.0})
+        r = analysis.detection_latency(flips, released, window_end_ms=50000, last_scan_start_ms=last)
+        self.assertEqual(
+            {k: r[k] for k in ("flips", "detectable", "detected", "undetected", "reverted", "afterLastScan")},
+            {"flips": 5, "detectable": 2, "detected": 1, "undetected": 1, "reverted": 1, "afterLastScan": 2},
+        )
+        self.assertEqual(r["p50Ms"], 3000.0)
+        # 沒給 last_scan_start_ms 時只用 window 判斷（30000 的釋位改算 undetected）
+        r2 = analysis.detection_latency(flips, released, window_end_ms=50000)
+        self.assertEqual((r2["undetected"], r2["afterLastScan"]), (2, 1))
+
+
+class TestReplayDb(unittest.TestCase):
+    """契約 §7.3：實驗只碰 replay schema 的 slot／slot_event／scan_log，任務量測讀 public.scan_task_log WHERE target='replay'。"""
+
+    def test_sql_only_touches_replay_schema(self):
+        from common import db
+
+        for sql in db.ALL_SQL:
+            for table in ("slot", "slot_event", "scan_log"):
+                # 不帶 schema 或帶 public. 的 slot／slot_event／scan_log 都不允許
+                for m in re.finditer(rf"(?<![\w.])((?:\w+\.)?){table}(?![\w])", sql):
+                    self.assertEqual(m.group(1), "replay.", f"{sql!r} 碰到非 replay schema 的 {table}")
+            if "scan_task_log" in sql:
+                self.assertIn("public.scan_task_log", sql)
+                self.assertIn("target = 'replay'", sql)
+        self.assertEqual(db.TRUNCATE_REPLAY_SQL, "TRUNCATE replay.slot, replay.slot_event, replay.scan_log RESTART IDENTITY")
+
+    def test_experiment_scripts_have_no_raw_sql_on_live_tables(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        pat = re.compile(r"\b(FROM|INTO|UPDATE|TRUNCATE|JOIN)\s+(public\.)?(slot|slot_event|scan_log)\b", re.I)
+        for d, _, files in os.walk(root):
+            if "tests" in d:
+                continue
+            for f in files:
+                if f.endswith(".py"):
+                    with open(os.path.join(d, f), encoding="utf-8") as fh:
+                        self.assertIsNone(pat.search(fh.read()), f"{f} 有直接讀寫 public 的 slot／slot_event／scan_log")
+
+    def test_reset_replay_db_dry_run_and_skip_do_not_connect(self):
+        from common import db
+
+        with mock.patch.object(db, "connect") as conn, redirect_stdout(io.StringIO()) as out:
+            self.assertFalse(db.reset_replay_db({}, dry_run=True))
+            self.assertFalse(db.reset_replay_db({}, dry_run=False, skip=True))
+        conn.assert_not_called()
+        self.assertIn("TRUNCATE replay.slot", out.getvalue())
+
+    def test_reset_replay_db_truncates_and_closes(self):
+        from common import db
+
+        fake = mock.MagicMock()
+        with mock.patch.object(db, "connect", return_value=fake), redirect_stdout(io.StringIO()):
+            self.assertTrue(db.reset_replay_db({}, dry_run=False))
+        fake.cursor.return_value.__enter__.return_value.execute.assert_called_once_with(db.TRUNCATE_REPLAY_SQL)
+        fake.close.assert_called_once()
+
+    def test_db_secret_fetched_once(self):
+        from common import db
+
+        sm = mock.Mock()
+        sm.get_secret_value.return_value = {"SecretString": json.dumps({"username": "u", "password": "p"})}
+        db._SECRET_CACHE.clear()
+        with mock.patch("common.awsclients.client", return_value=sm):
+            for _ in range(3):
+                self.assertEqual(db._db_secret("arn:x")["username"], "u")
+        self.assertEqual(sm.get_secret_value.call_count, 1)
+        db._SECRET_CACHE.clear()
+
+
+class TestBlockAz(unittest.TestCase):
+    """E2 --block-az：先驗證所有 ASG 再改；中途失敗時已改的 ASG 一定記在 original，finally 逐一還原。"""
+
+    def setUp(self):
+        from e2_ha import fault_inject
+
+        self.fi = fault_inject
+        self.groups = {"w": "sa,sb", "api": "sa2,sb2"}
+        self.azs = {"sa": "us-east-1a", "sb": "us-east-1b", "sa2": "us-east-1a", "sb2": "us-east-1b", "only-a": "us-east-1a"}
+        self.asg = mock.Mock()
+        self.asg.describe_auto_scaling_groups.side_effect = lambda AutoScalingGroupNames: {  # noqa: N803
+            "AutoScalingGroups": [{"VPCZoneIdentifier": self.groups[AutoScalingGroupNames[0]]}]
+        }
+        self.ec2 = mock.Mock()
+        self.ec2.describe_subnets.side_effect = lambda SubnetIds: {  # noqa: N803
+            "Subnets": [{"SubnetId": s, "AvailabilityZone": self.azs[s]} for s in SubnetIds]
+        }
+
+    def test_second_asg_update_fails_first_is_recorded_and_restored(self):
+        def update(AutoScalingGroupName, VPCZoneIdentifier):  # noqa: N803
+            if AutoScalingGroupName == "api" and VPCZoneIdentifier == "sb2":
+                raise RuntimeError("Throttling")
+            self.groups[AutoScalingGroupName] = VPCZoneIdentifier
+
+        self.asg.update_auto_scaling_group.side_effect = update
+        original = {}
+        with redirect_stdout(io.StringIO()):
+            with self.assertRaises(RuntimeError):
+                self.fi.block_az(self.asg, self.ec2, ["w", "api"], "us-east-1a", original)
+            self.assertEqual(self.groups["w"], "sb")
+            self.assertEqual(original, {"w": "sa,sb", "api": "sa2,sb2"})
+            failed = self.fi.restore_subnets(self.asg, original)
+        self.assertEqual(failed, [])
+        self.assertEqual(self.groups, {"w": "sa,sb", "api": "sa2,sb2"})
+
+    def test_validation_failure_changes_nothing(self):
+        self.groups["api"] = "only-a"
+        original = {}
+        with redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
+            self.fi.block_az(self.asg, self.ec2, ["w", "api"], "us-east-1a", original)
+        self.asg.update_auto_scaling_group.assert_not_called()
+        self.assertEqual(original, {})
+
+    def test_restore_continues_after_one_failure_and_prints_manual_command(self):
+        def update(AutoScalingGroupName, VPCZoneIdentifier):  # noqa: N803
+            if AutoScalingGroupName == "w":
+                raise RuntimeError("ExpiredToken")
+            self.groups[AutoScalingGroupName] = VPCZoneIdentifier
+
+        self.asg.update_auto_scaling_group.side_effect = update
+        self.groups = {"w": "sb", "api": "sb2"}
+        with redirect_stdout(io.StringIO()) as out:
+            failed = self.fi.restore_subnets(self.asg, {"w": "sa,sb", "api": "sa2,sb2"})
+        self.assertEqual(failed, ["w"])
+        self.assertEqual(self.groups["api"], "sa2,sb2")
+        self.assertIn('--auto-scaling-group-name w --vpc-zone-identifier "sa,sb"', out.getvalue())
 
 
 class TestCost(TmpResults):
@@ -220,6 +389,16 @@ class TestCost(TmpResults):
         scans = 60 * 730
         expected = scans * 1.0 * self.P["lambda"]["perGbSecond"] + scans / 1e6 * self.P["lambda"]["perMillionRequests"]
         self.assertAlmostEqual(r["scanning"]["workerCompute"], expected)
+        # Lambda 的 Receive 已算在 sqsPolling，每次掃描只算 Send＋Delete，不重複計算
+        self.assertAlmostEqual(r["scanning"]["sqs"], scans * 2 / 1e6 * self.P["sqs"]["perMillionRequests"])
+        e = self.cm.ec2_model(self.P, a, 1)
+        self.assertAlmostEqual(e["scanning"]["sqs"], scans * 3 / 1e6 * self.P["sqs"]["perMillionRequests"])
+
+    def test_platform_includes_public_ipv4_and_secrets(self):
+        f = self.cm.platform_fixed(self.P, self.cm.DEFAULTS)
+        self.assertAlmostEqual(f["publicIpv4"], 4 * 0.005 * 730)
+        self.assertAlmostEqual(f["secretsManager"], 0.8)
+        self.assertEqual(f["cloudfront"], 0)
 
     def test_per_1000_is_monthly_over_scans(self):
         rows = self.cm.run(self.P, dict(self.cm.DEFAULTS), [14])
@@ -293,6 +472,7 @@ class TestDryRuns(TmpResults):
         rc, out = self.run_main("e2_ha.fault_inject", ["--dry-run", "--az", "us-east-1a"])
         self.assertEqual(rc, 0)
         self.assertIn("ForceFailover", out)
+        self.assertIn("TRUNCATE replay.slot, replay.slot_event, replay.scan_log", out)
         self.assert_result("e2")
 
     def test_e2_requires_confirm(self):
@@ -304,7 +484,14 @@ class TestDryRuns(TmpResults):
         rc, out = self.run_main("e3_performance.run_scaling", ["--dry-run", "--workers", "1,2,4,8"])
         self.assertEqual(rc, 0)
         self.assertIn("n=8", out)
+        self.assertIn("TRUNCATE replay.slot", out)
         self.assert_result("e3")
+
+    def test_e3_repeat_multiplies_measure_round(self):
+        rc, out = self.run_main("e3_performance.run_scaling", ["--dry-run", "--workers", "8", "--repeat", "10", "--keep-replay-db"])
+        self.assertEqual(rc, 0)
+        self.assertIn("量測 3600 則", out)
+        self.assertNotIn("TRUNCATE", out)
 
     def test_e1_analyze_locust(self):
         hist = os.path.join(self.tmp, "h.csv")
