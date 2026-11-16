@@ -1,0 +1,32 @@
+{
+  "name": "mvdis-watch-aws-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AWS 版的 dispatcher Lambda、爬蟲 worker、notifier Lambda 與資料庫 migration",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "migrate": "node --experimental-strip-types --no-warnings scripts/migrate.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --no-warnings --test \"test/**/*.test.ts\"",
+    "worker": "node --experimental-strip-types --no-warnings src/worker/main.ts",
+    "e2e:local": "node --experimental-strip-types --no-warnings scripts/e2e-local.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1169.0",
+    "@aws-sdk/client-secrets-manager": "^3.1169.0",
+    "@aws-sdk/client-sns": "^3.1169.0",
+    "@aws-sdk/client-sqs": "^3.1169.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
