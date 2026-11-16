@@ -37,6 +37,10 @@
   以及每小時／每日的釋位次數分布。時間解析度受掃描頻率限制：熱門照類約 10 分鐘掃一次，
   所以「被搶光」低於 15 分鐘的都顯示為「約 10 分鐘內」。
 - **變化紀錄**：這一站最近的釋出／額滿／新場次／移除事件。
+- **監理站基本資料**：電話（可直接撥）、傳真、所轄區域與 Google 地圖連結。
+  來自政府資料開放平臺的交通部公路局「[監理機關轄區](https://data.gov.tw/dataset/86521)」資料集，
+  依[政府資料開放授權條款第 1 版](https://data.gov.tw/license)使用；靜態寫在 `src/station-info.ts`，
+  不進 D1、不加 cron，要更新就跑 `npm run stations:info` 重新產生（對不上的站名會印出來）。
 
 站別代號見 `src/catalogue.ts` 或 `/api/meta`。`/sitemap.xml` 列出全部 36 站。
 
@@ -47,10 +51,10 @@ D1 每 30 秒最多只被同一個查詢讀一次。`/api` 本身會回傳端點
 
 | 端點 | 內容 |
 | --- | --- |
-| `/api/meta` | 站別、照類對照、掃描健康度、最後一次掃描時間 |
+| `/api/meta` | 站別（含電話、傳真、所轄區域）、照類對照、掃描健康度、最後一次掃描時間 |
 | `/api/available` | 目前有餘額的場次。參數：`dmvNo`、`licenseType`、`county`、`lv1`、`from`、`to`、`weekendOnly=1`、`minQuota`、`limit` |
 | `/api/overview` | 每個「監理站 × 照類」目前有位的場次數與名額數 |
-| `/api/station?dmvNo=41` | 單一站的完整場次表（含額滿）、每照類釋位統計、最近 200 筆事件、掃描健康度 |
+| `/api/station?dmvNo=41` | 單一站的基本資料（電話、傳真、所轄區域）、完整場次表（含額滿）、每照類釋位統計、最近 200 筆事件、掃描健康度 |
 | `/api/slots?licenseType=3&dmvNo=41` | 單一「照類 × 監理站」的完整場次表 |
 | `/api/events` | 最近的變化事件流。參數：`kind`、`limit` |
 
@@ -75,12 +79,14 @@ Cron (每分鐘) ─► scheduled() ─► 取下一分片 → 併發抓取 → 
 | --- | --- |
 | `src/mvdis.ts` | 抓取與解析核心，可獨立於 Cloudflare 執行 |
 | `src/catalogue.ts` | 36 站 + 10 照類的對照表 |
+| `src/station-info.ts` | 36 站的電話、傳真、所轄區域（由 `scripts/stations-info.mjs` 自開放資料產生） |
 | `src/scan.ts` | 分層分片排程、降頻、清理 |
 | `src/db.ts` | D1 存取與差異比對 |
 | `src/stats.ts` | 釋位歷史統計（純計算） |
 | `src/index.ts` | Worker 進入點、API 路由、快取、每站頁面注入 |
 | `public/` | 儀表板與每站頁面（原生 ES module，無打包步驟） |
 | `scripts/sweep.mjs` | 本機驗證用，不碰 Cloudflare |
+| `scripts/stations-info.mjs` | 下載開放資料、對應站名、產生 `src/station-info.ts` |
 
 ## 免費方案實測
 

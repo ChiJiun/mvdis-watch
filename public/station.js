@@ -41,6 +41,14 @@ function minutes(n) {
   return `約 ${Math.round(n / 1440)} 天`;
 }
 
+/** (02)22227835 → tel:+886-2-22227835；對不出台灣市話格式就原樣放進 tel: */
+function telHref(phone) {
+  const m = phone.replace(/\s/g, '').match(/^\(?0(\d{1,3})\)?(\d{6,8})$/);
+  return m ? `tel:+886-${m[1]}-${m[2]}` : `tel:${phone.replace(/[^\d+]/g, '')}`;
+}
+
+const mapsHref = (address) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+
 function syncUrl() {
   const q = new URLSearchParams(location.search);
   if (activeType) q.set('type', activeType); else q.delete('type');
@@ -89,6 +97,7 @@ function render() {
   $('#stMeta').innerHTML =
     `${station.address} · ${office?.name ?? ''} · <a href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">官網報名頁</a>`;
   $('#apiLink').href = `/api/station?dmvNo=${dmvNo}`;
+  renderContact();
   fillSwitch();
   renderLastScan();
   renderTypeChips();
@@ -97,6 +106,29 @@ function render() {
   renderTable();
   renderCharts();
   renderEvents();
+}
+
+/** 開放資料的電話、傳真、所轄區域與地圖連結；沒對到資料的站只給地圖 */
+function renderContact() {
+  const { station, stationInfoSource: src } = data;
+  const parts = [];
+  if (station.phone) parts.push(`📞 <a href="${telHref(station.phone)}">${station.phone}</a>`);
+  if (station.fax) parts.push(`傳真 ${station.fax}`);
+  parts.push(`<a href="${mapsHref(`${station.name} ${station.address}`)}" target="_blank" rel="noopener">📍 Google 地圖</a>`);
+  $('#stContact').innerHTML = parts.join(' · ');
+  $('#stContact').hidden = false;
+
+  const area = $('#stArea');
+  area.hidden = !station.area;
+  if (station.area) area.innerHTML = `<span class="k">所轄區域</span>${station.area}`;
+
+  const foot = $('#infoSource');
+  foot.hidden = !(src && (station.phone || station.area));
+  if (!foot.hidden) {
+    foot.innerHTML =
+      `電話、傳真與所轄區域來自 <a href="${src.dataset}" target="_blank" rel="noopener">${src.provider}「${src.name}」</a>` +
+      `（政府資料開放平臺，${src.updatedAt} 更新），依 <a href="${src.licenseUrl}" target="_blank" rel="noopener">${src.license}</a> 使用。`;
+  }
 }
 
 function renderLastScan() {
