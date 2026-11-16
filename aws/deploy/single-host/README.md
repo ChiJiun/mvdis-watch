@@ -83,11 +83,12 @@ ssh -N -L 8200:127.0.0.1:8200 <使用者>@<主機>
 worker 會實際查詢監理服務網。上限和保護規則與 AWS 版相同（契約 §4.2：過期、帶 runId 的 live 任務一律不抓）。
 
 - **「每分鐘 14 次」以日曆分鐘計**：每個整分鐘最多派送一批，每個日曆分鐘的實際抓取不超過 14 次。
-  每批抓取有 1–3 秒的抖動，下一批又在整點開始，所以任意 60 秒的滑動視窗在正常運作時可能到 20 多次；
-  平均負載仍是每分鐘 14 次。這和契約 §4.1、Cloudflare 原型、AWS 版的 EventBridge 定義相同。
+  一批 14 次會因 worker 併發（預設 5）和請求延遲，分散在整分鐘後的幾秒內完成，所以任意 60 秒的滑動視窗
+  最多可能包含相鄰兩批（理論上限 28 次）；平均負載仍是每分鐘 14 次。這和契約 §4.1、Cloudflare 原型、AWS 版的 EventBridge 定義相同。
+- scheduler 的 SQS 請求不自動重試：逾時的派送可能其實已經送達，重試會讓同一批進佇列兩次。失敗時由下一輪處理。
 - **同一時間只能有一套系統在抓官網。** 根目錄的 Cloudflare 原型、AWS 版、這個單機版各自都會用滿每分鐘 14 次，
   同時開著就會加倍。部署 AWS 版（或啟用原型的 cron）之前，先把這裡的 `DISPATCH_ENABLED` 改成 `0`
-  （或 `docker compose stop scheduler`）。
+  再 `docker compose up -d scheduler`。只用 `docker compose stop scheduler` 的話，下次 `docker compose up -d` 會把它重新啟動。
 - 只想驗證流程、不打官網：維持 `.env` 的預設 `DISPATCH_ENABLED=0`，再用下面的方式灌 replay 任務。
 - 要停止抓官網：把 `DISPATCH_ENABLED` 改回 `0`，再 `docker compose up -d scheduler`（佇列裡剩下的 live 任務 120 秒後會過期不抓）。
 
@@ -97,8 +98,10 @@ worker 會實際查詢監理服務網。上限和保護規則與 AWS 版相同�
 這時可以把 live 請求交給 [`live-proxy/`](live-proxy/) 這個 Cloudflare Worker 轉發：
 
 - 只接受 `ALLOWED_IPS` 裡的來源 IP（部署時帶入，不寫進 repo）；沒設定就全部拒絕。
-- 只轉發到官網的查詢端點（固定路徑），只允許 GET／POST，不轉送 cookie。
+- 只轉發到官網的查詢端點（固定路徑），只允許 GET／POST，不轉送 cookie 與 query；連不到官網時回 502。
 - 不另外限速：請求量仍由這裡的 scheduler 控制（每分鐘最多 14 則）。
+  因此 `REPLAY_BASE_URL` 絕不能指向轉發器（replay 任務不受這個限制），同一台主機上也不要有其他程式呼叫它。
+- VM 的公開 IP 變了就要用新 IP 重新 deploy。舊 IP 可能被分配給別人，在那之前對方也能使用轉發器；建議 VM 改用固定的公開 IP。
 - `wrangler.toml` 設了 `placement.region = "gcp:asia-east1"`，讓 Worker 在台灣附近的節點發請求。
   沒設的話會在離 VM 最近的節點（東京）執行，實測每次要約 20 秒，會碰到 worker 的 20 秒抓取逾時；
   設了之後約 0.3 秒，回應標頭 `cf-placement: remote-TPE`。
@@ -108,7 +111,7 @@ worker 會實際查詢監理服務網。上限和保護規則與 AWS 版相同�
 cd aws/deploy/single-host/live-proxy
 npx wrangler login
 npx wrangler deploy --var ALLOWED_IPS:<VM 的公開 IPv4>
-# 在 VM 上確認轉發器連得到官網（只會發 1 個請求）
+# 在 VM 上確認轉發器連得到官網（會發 1 個請求，不在 scheduler 的每分鐘預算內，不要重複執行）
 curl -s -o /dev/null -w "%{http_code}\n" https://mvdis-live-proxy.<子網域>.workers.dev/m3-emv-trn/exm/locations
 ```
 

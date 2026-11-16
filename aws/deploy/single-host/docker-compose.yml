@@ -91,6 +91,7 @@ services:
       <<: *aws-env
       # 主機連不到官網時（例如海外 VM），改指 live-proxy/ 的轉發器，見 README
       MVDIS_LIVE_URL: ${MVDIS_LIVE_URL:-https://www.mvdis.gov.tw}
+      # 絕不能指向官網或轉發器：replay 任務不受每分鐘 14 次的限制
       REPLAY_BASE_URL: http://replay:8080
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
       WORKER_ID: ${WORKER_ID:-single-host}
