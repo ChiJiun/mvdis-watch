@@ -75,11 +75,11 @@ terraform apply
    ```bash
    aws secretsmanager put-secret-value --secret-id "$(terraform output -raw discord_secret_arn)" --secret-string '{"webhookUrl":"https://discord.com/api/webhooks/..."}'
    ```
-2. **資料庫 migration**：RDS-SG 收 Bastion-SG 的 5432，直接經 Bastion 轉 tunnel：
+2. **資料庫 migration**：RDS-SG 收 Bastion-SG 的 5432（`security_groups.tf` 的 `rds_from_bastion`），直接經 Bastion 轉 tunnel。本機埠用 `15432`，避開本機 `docker compose` 的 Postgres（5432）：
    ```bash
-   ssh -i labsuser.pem -L 5432:<rds_endpoint>:5432 ec2-user@<bastion_public_ip>
+   ssh -i labsuser.pem -L 15432:<rds_endpoint>:5432 ec2-user@<bastion_public_ip>
    ```
-   另開終端機，用 `aws secretsmanager get-secret-value --secret-id <db_secret_arn>` 取得密碼，`DATABASE_URL=postgres://mvdis:<密碼>@localhost:5432/mvdis` 跑 `aws/app` 的 `npm run migrate`。
+   另開終端機，用 `aws secretsmanager get-secret-value --secret-id <db_secret_arn>` 取得密碼，`DATABASE_URL=postgres://mvdis:<密碼>@localhost:15432/mvdis` 跑 `aws/app` 的 `npm run migrate`。
 3. **alarm 通知**（可選）：設了 `alarm_email` 的話，到信箱點 SNS 的確認信。
 
 ### 驗證
@@ -99,12 +99,13 @@ SELECT kind, count(*) FROM mvdis_datalake.events WHERE dt >= '2026-11-01' GROUP 
 
 ## 3. 實驗相關
 
-- **實驗主機就是 Bastion**：E1 的佇列端、E2、E3 的腳本（`aws/experiments/`）在 Bastion 上執行。Bastion-SG 被允許連 RDS 5432（清 replay schema、讀 `scan_task_log` 量測結果）與 Replay 站 8080（`/healthz`、`/admin/*`）。worker 不能當跳板，因為 E2／E3 會把它關掉；Bastion 不屬於任何 ASG，實驗不會動到它。Bastion 本身仍然只收 `admin_cidr` 的 22。
+- **實驗主機就是 Bastion**：E1 的佇列端、E2、E3 的腳本（`aws/experiments/`）在 Bastion 上執行。Bastion-SG 被允許連 RDS 5432（`rds_from_bastion`：清 replay schema、讀 `scan_task_log` 量測結果）與 Replay 站 8080（`replay_from_bastion`：`/healthz`、`/admin/*`）。worker 不能當跳板，因為 E2／E3 會把它關掉；Bastion 不屬於任何 ASG，實驗不會動到它。Bastion 本身仍然只收 `admin_cidr` 的 22。
   ```bash
   ssh -i labsuser.pem ec2-user@<bastion_public_ip>
   ```
-  > 注意：Bastion 在 AZ-a 的 public subnet。E2「關掉 AZ-a 所有 instance」指的是 ASG 與 Replay 等受測服務，不要關 Bastion，否則實驗腳本本身會中斷。
-- **E2 高可用**：`terraform output private_subnet_ids` 找出 AZ-a，停掉該 AZ 的 instance；RDS 用 `aws rds reboot-db-instance --db-instance-identifier "$(terraform output -raw rds_identifier)" --force-failover`。
+  Bastion 預設 `t3.micro`（1 GiB 記憶體）。在上面 `pip install` 實驗相依套件或出圖時若記憶體不足，把 `bastion_instance_type` 改成 `t3.small` 再 apply。
+- **E2 高可用**：用 `aws/experiments/e2_ha/fault_inject.py` 執行，它**只終止 worker ASG 與 API ASG 在 AZ-a 的 instance**，並觸發 RDS 強制主備切換（`aws rds reboot-db-instance --db-instance-identifier "$(terraform output -raw rds_identifier)" --force-failover`）。
+  > Bastion 與 Replay 雖然也在 AZ-a，但都不屬於 ASG，**不會被關，也不要手動關**：關掉 Bastion 會中斷實驗腳本本身；關掉 Replay 會讓所有 replay 任務失敗，量到的會是「外部網站掛掉」而不是 AZ 故障。若要手動操作，也只停這兩個 ASG 的 instance（`terraform output private_subnet_ids` 可對照哪個 subnet 屬於 AZ-a）。
 - **E3 speedup**：`terraform.tfvars` 設 `replay_enabled = true` 後 apply：建立 Replay 站，worker 的環境變數多一個 `REPLAY_BASE_URL=http://10.0.10.200:8080`（launch template 變更會滾動替換 worker）。`MVDIS_LIVE_URL` 固定是官網，不能改；replay 任務只會打 `REPLAY_BASE_URL`（契約 §4.2）。固定台數時先暫停擴縮，避免 target tracking 干擾：
   ```bash
   aws autoscaling suspend-processes --auto-scaling-group-name mvdis-worker-asg --scaling-processes AlarmNotification

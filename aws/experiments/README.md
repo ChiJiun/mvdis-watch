@@ -29,19 +29,14 @@ RDS 和 Replay 站都在 private subnet。**執行 E1 佇列端（`--watch` 讀�
 | Replay 站 | `replay_base_url`（`http://10.0.10.200:8080`） | `/admin/reset`、`/admin/stats`、`/admin/events` |
 | AWS API | SQS、Auto Scaling、EC2、RDS、Secrets Manager（經 NAT） | 送任務、調整 ASG、故障注入、讀帳密 |
 
-預定的實驗主機是 **bastion**，但 `main` 目前的 infra（PR #6）**不允許** bastion 連這兩個位址：
+實驗主機是 **bastion**。infra 在 `aws/infra/security_groups.tf` 用兩條 ingress 規則讓 bastion 連得到這兩個位址：
 
-- RDS-SG 只收 API-SG、Worker-SG 的 5432（`aws/infra/security_groups.tf` 的 `rds_from_app`）。
-- Replay-SG 只收 Worker-SG 的 8080（`replay_from_worker`）。
+- `rds_from_bastion`：RDS-SG 收 Bastion-SG 的 5432（應用層的 `rds_from_app` 另外收 API-SG、Worker-SG）。
+- `replay_from_bastion`：Replay-SG 收 Bastion-SG 的 8080（另有 `replay_from_worker` 收 Worker-SG）。
 
-所以要先等 infra 的後續 PR 補上兩條 ingress 規則，bastion 才能當實驗主機：
-
-- `rds_from_bastion`：RDS-SG 收 Bastion-SG 的 5432。
-- `replay_from_bastion`：Replay-SG 收 Bastion-SG 的 8080。
-
-規則上線前在 bastion 上跑，E1（`--watch`／`--truncate-replay-db`）、E2、E3 會在第一次連資料庫或 Replay 時逾時停止
-（E1、E2 停在任何破壞性動作之前；E3 若已把 worker ASG 釘住台數，會由 `finally` 還原）。也不能改用 worker 當跳板（`ssh -J bastion -L … <worker>`）：
-E2 會終止 AZ-a 的 worker、E3 會把 worker ASG 縮到 1 台，跳板所在的 worker 可能在實驗中被關掉。
+不要改用 worker 當跳板（`ssh -J bastion -L … <worker>`）：E2 會終止 AZ-a 的 worker、E3 會把 worker ASG 縮到 1 台，
+跳板所在的 worker 可能在實驗中被關掉。bastion 不屬於任何 ASG，實驗不會動到它。
+bastion 預設是 `t3.micro`（1 GiB）；`pip install` 或出圖時記憶體不足，可在 infra 把 `bastion_instance_type` 改成 `t3.small`。
 
 E1 的 Locust 只打公開的 CloudFront，不需要上面的規則；建議另開一台 `t3.large` 以上的 EC2（2,000 個使用者單機會吃滿 CPU，
 加 `--processes -1` 用滿所有核心）。E4 是純計算，哪裡都能跑。
@@ -96,8 +91,8 @@ worker 處理 `target=replay` 任務時，`slot`／`slot_event`／`scan_log` 寫
   這時實驗結果的 `scanTaskLog.rejected` 會大於 0、漏掃組數等於 360。
 - E2 前：`worker_min_size = 2`（預設 1），確保兩個 AZ 各有 worker；API ASG 同理。
 - E3 跑到 8 台：`worker_max_size >= 8`（預設就是 8）。
-- Replay 站的 `/admin/*` 預設不驗證身分，靠 security group 隔離：Replay-SG 目前只開放 Worker-SG（`replay_from_worker`），
-  infra 後續 PR 會再加 Bastion-SG（`replay_from_bastion`），之後就只有 Worker-SG 和 Bastion-SG 連得到。
+- Replay 站的 `/admin/*` 預設不驗證身分，靠 security group 隔離：Replay-SG 只開放 Worker-SG（`replay_from_worker`）
+  與 Bastion-SG（`replay_from_bastion`），見 `aws/infra/security_groups.tf`。
   若要再加一層，可以在 Replay 站設定 `REPLAY_ADMIN_TOKEN`，並在執行實驗的主機設定同名環境變數：
   `common/replay_admin.py` 會自動帶上 `x-admin-token` 標頭。
 

@@ -11,6 +11,10 @@
 # Bastion 同時是實驗主機：E1 佇列端、E2、E3 的腳本在 Bastion 上跑，要能直接連 RDS（清 replay schema、
 # 讀量測結果）與 Replay 站（/admin/*）。worker 不能當跳板，因為 E2／E3 會把它關掉。
 # Bastion 本身仍然只收 admin_cidr 的 22。
+#
+# 注意：aws_security_group 的 description 改了會 ForceNew（SG 名稱固定，只能先刪後建，已部署時會卡在 ENI），
+# 所以 RDS-SG／Replay-SG 的 description 維持原文；實際允許的來源以下方的 ingress rule 為準
+#（rds_from_bastion、replay_from_bastion 是後來加的）。
 
 data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
   name = "com.amazonaws.global.cloudfront.origin-facing"
@@ -46,14 +50,14 @@ resource "aws_security_group" "bastion" {
 
 resource "aws_security_group" "rds" {
   name        = "${var.project}-rds-sg"
-  description = "RDS: 5432 only from API-SG, Worker-SG and Bastion-SG"
+  description = "RDS: 5432 only from API-SG and Worker-SG"
   vpc_id      = aws_vpc.main.id
   tags        = { Name = "${var.project}-rds-sg" }
 }
 
 resource "aws_security_group" "replay" {
   name        = "${var.project}-replay-sg"
-  description = "Replay mock site: 8080 only from Worker-SG and Bastion-SG"
+  description = "Replay mock site: 8080 only from Worker-SG"
   vpc_id      = aws_vpc.main.id
   tags        = { Name = "${var.project}-replay-sg" }
 }
