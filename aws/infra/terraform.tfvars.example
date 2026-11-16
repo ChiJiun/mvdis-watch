@@ -1,0 +1,16 @@
+# 複製成 terraform.tfvars 後修改（terraform.tfvars 已被 .gitignore 忽略）。
+
+# 必填：你的對外 IP，SSH 只開給它。查詢：curl https://checkip.amazonaws.com
+admin_cidr = "203.0.113.10/32"
+
+# 選填（以下都是預設值）
+# key_name                    = "vockey"
+# alarm_email                 = "you@example.com"
+# db_multi_az                 = true
+# dispatcher_schedule_enabled = true
+# janitor_schedule_enabled    = true
+# hot_per_tick                = 11
+# cold_per_tick               = 3
+
+# E3 實驗：開 Replay 站（worker 會多一個 REPLAY_BASE_URL=http://10.0.10.200:8080）
+# replay_enabled = true
