@@ -8,8 +8,13 @@
 # 對外只開放 api，而且只綁 127.0.0.1（用 SSH tunnel 看），其他服務只在 compose 的內部網路。
 # 用法見同目錄的 README.md。
 
+# 固定專案名稱：container／network／volume 都以 mvdis-watch 開頭，不會和主機上其他 compose 專案混在一起
+name: mvdis-watch
+
 x-common: &common
   image: mvdis-aws:latest
+  # 映像要先在本機 docker build（見 README），不要去 Docker Hub 找同名映像
+  pull_policy: never
   restart: unless-stopped
   logging:
     driver: json-file
@@ -56,12 +61,17 @@ services:
       AWS_DEFAULT_REGION: us-east-1
     volumes:
       - ../../localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+      - ./localstack-ready.sh:/opt/mvdis/localstack-ready.sh:ro
     healthcheck:
-      # init 腳本最後才建 bucket，查得到就代表資源都建好了
-      test: ["CMD-SHELL", "awslocal s3api head-bucket --bucket mvdis-raw-local >/dev/null 2>&1"]
-      interval: 5s
+      # 用 LocalStack 自己的 init 狀態端點（curl，幾乎不吃 CPU），檢查邏輯在 localstack-ready.sh：
+      # 所有 ready.d 腳本都跑完而且沒有失敗才算健康。
+      # 不用 awslocal：它每跑一次就要啟動 Python CLI，約 2 秒 CPU，長期會吃掉約 0.3 核。
+      test: ["CMD", "sh", "/opt/mvdis/localstack-ready.sh"]
+      interval: 30s
       timeout: 5s
-      retries: 60
+      retries: 3
+      start_period: 120s
+      start_interval: 3s
     mem_limit: 1536m
     logging:
       driver: json-file
@@ -97,7 +107,7 @@ services:
       <<: *aws-env
       HOT_PER_TICK: ${HOT_PER_TICK:-11}
       COLD_PER_TICK: ${COLD_PER_TICK:-3}
-      DISPATCH_ENABLED: ${DISPATCH_ENABLED:-1}
+      DISPATCH_ENABLED: ${DISPATCH_ENABLED:-0}
       RAW_RETENTION_DAYS: ${RAW_RETENTION_DAYS:-3}
     depends_on:
       postgres: { condition: service_healthy }

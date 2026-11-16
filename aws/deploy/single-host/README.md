@@ -23,10 +23,19 @@ AWS 上的正式部署仍然用 [`aws/infra/`](../../infra/) 的 Terraform，這
 
 ## 部署
 
+先確認 port 沒被占用（主機上可能已有其他服務）：
+
+```bash
+ss -ltn | grep -w 8200 || echo "8200 可用"
+```
+
+被占用就在 `.env` 改 `API_PORT`。接著：
+
 ```bash
 git clone https://github.com/ChiJiun/mvdis-watch.git && cd mvdis-watch
 cd aws/deploy/single-host
-cp .env.example .env
+cp .env.example .env && chmod 600 .env
+# .env.example 的 change-me 只是占位字，一定要換掉
 sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
 # 映像的 build context 是 repo 根目錄
 docker build -f Dockerfile -t mvdis-aws:latest ../../..
@@ -34,13 +43,25 @@ docker compose up -d
 docker compose ps
 ```
 
-在主機上檢查：
+第一次啟動時 `.env` 是 `DISPATCH_ENABLED=0`，**不會打官網**。在主機上檢查：
 
 ```bash
 curl -s http://127.0.0.1:8200/healthz
 curl -s http://127.0.0.1:8200/api/meta
 docker compose logs --tail=20 scheduler worker
 ```
+
+確認沒問題（可以先跑下面「只用 Replay 模擬站驗證」），再開始抓官網：
+
+```bash
+sed -i "s/^DISPATCH_ENABLED=.*/DISPATCH_ENABLED=1/" .env
+docker compose up -d scheduler
+docker compose logs -f scheduler   # 每分鐘一行 dispatch ok，sent 應為 14
+```
+
+`DISPATCH_ENABLED` 只接受 `0` 或 `1`；其他值（例如 `true`、空字串）scheduler 會印出設定錯誤並結束，不會派送。
+
+> **一台主機只能跑一份 scheduler。** 不要 `docker compose up --scale scheduler=2`，也不要在同一台主機用不同目錄或專案名稱再起一份這個 compose，否則每分鐘的官網請求會加倍。compose 已固定專案名稱為 `mvdis-watch`，在別的目錄執行 `docker compose up` 會接管同一組容器，不會另起一份。
 
 從自己的電腦看儀表板：
 
@@ -55,7 +76,8 @@ ssh -N -L 8200:127.0.0.1:8200 <使用者>@<主機>
 worker 會實際查詢監理服務網。上限和保護規則與 AWS 版相同（契約 §4.2：過期、帶 runId 的 live 任務一律不抓）。
 
 - 如果同時還有其他爬蟲在抓官網（例如根目錄的 Cloudflare 原型），官網收到的請求會相應增加，請自行斟酌。
-- 只想驗證流程、不打官網：在 `.env` 設 `DISPATCH_ENABLED=0`，再用下面的方式灌 replay 任務。
+- 只想驗證流程、不打官網：維持 `.env` 的預設 `DISPATCH_ENABLED=0`，再用下面的方式灌 replay 任務。
+- 要停止抓官網：把 `DISPATCH_ENABLED` 改回 `0`，再 `docker compose up -d scheduler`（佇列裡剩下的 live 任務 120 秒後會過期不抓）。
 
 ## 只用 Replay 模擬站驗證（不打官網）
 
