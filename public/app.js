@@ -686,11 +686,14 @@ $('#share').addEventListener('click', async () => {
   }, 1500);
 });
 
-$('#autoRefresh').addEventListener('change', (e) => {
+/** 依自動更新開關設定 timer 與暫停樣式。載入時也要跑一次：瀏覽器可能還原上次的勾選狀態（例如 Firefox 重新整理） */
+function syncAutoRefresh() {
+  const on = $('#autoRefresh').checked;
   clearInterval(timer);
-  if (e.target.checked) timer = setInterval(tick, REFRESH_MS);
-  $('.status').classList.toggle('paused', !e.target.checked);
-});
+  timer = on ? setInterval(tick, REFRESH_MS) : null;
+  $('.status').classList.toggle('paused', !on);
+}
+$('#autoRefresh').addEventListener('change', syncAutoRefresh);
 
 async function tick() {
   try {
@@ -705,5 +708,5 @@ await loadMeta();
 filtersFromUrl();
 fillStations();
 await refresh();
-timer = setInterval(tick, REFRESH_MS);
+syncAutoRefresh();
 (window.requestIdleCallback ?? ((fn) => setTimeout(fn, 200)))(() => import('/aura.js').then((m) => m.initAura()).catch(() => {}));

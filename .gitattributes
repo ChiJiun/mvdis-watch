@@ -1,0 +1,2 @@
+# 第三方套件原檔：不做換行轉換，保持和 npm 原檔逐位元組相同（LICENSE 檔記錄的 SHA-256 才對得上）
+public/vendor/* -text
