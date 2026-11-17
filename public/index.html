@@ -15,7 +15,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230b6bcb'/%3E%3Cg fill='none' stroke='white' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='7'/%3E%3Ccircle cx='12' cy='12' r='1.6'/%3E%3Cpath d='M5 12h5M14 12h5M12 14v5'/%3E%3C/g%3E%3C/svg%3E" />
 </head>
 <body>
-<div class="aura" aria-hidden="true"><canvas></canvas></div>
+<div class="aura" aria-hidden="true"><div class="stage"><canvas></canvas></div></div>
 
 <header class="topbar">
   <div class="wrap head">
@@ -48,7 +48,7 @@
   <!-- 分區總覽：先回答「到底哪裡還有缺」，再往下鑽 -->
   <section class="overview" aria-labelledby="ovTitle">
     <div class="sechead">
-      <h2 id="ovTitle">哪裡還有位</h2>
+      <h1 id="ovTitle">哪裡還有位</h1>
       <p class="summary" id="ovSummary"></p>
     </div>
     <div id="cards" class="cards" role="group" aria-label="點選監理所篩選場次"><div class="card skel">載入中…</div></div>

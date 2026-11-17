@@ -34,6 +34,8 @@ const shortType = (code) => (licenseByCode.get(code)?.name ?? code).replace(' (5
 const typeName = (code) => licenseByCode.get(code)?.name ?? code;
 const stationName = (no) => stationByNo.get(no)?.name ?? no;
 const absTime = (t) => new Date(t).toLocaleString('zh-TW', { hour12: false });
+/** 給 <time datetime> 用；遇到不合法的時間不要讓整個列表渲染失敗 */
+const isoTime = (t) => { const d = new Date(t); return Number.isNaN(d.getTime()) ? '' : d.toISOString(); };
 
 function ago(t) {
   const m = Math.round((Date.now() - t) / 60000);
@@ -408,7 +410,7 @@ function renderEvents(rows) {
           <a class="st" href="/station/${esc(e.dmv_no)}?type=${esc(e.license_type)}"><strong>${esc(stationName(e.dmv_no))}</strong></a> · ${esc(shortType(e.license_type))}
           <div class="ev-sub" title="考試日期 ${esc(e.exam_date)}"><span class="d">${esc(fmtDate(e.exam_date))}</span>${eventDelta(e)}</div>
         </div>
-        <time class="ev-time" datetime="${new Date(e.at).toISOString()}" title="${esc(absTime(e.at))}">${ago(e.at)}</time>`;
+        <time class="ev-time" datetime="${isoTime(e.at)}" title="${esc(absTime(e.at))}">${ago(e.at)}</time>`;
       return li;
     }),
   );
@@ -435,6 +437,12 @@ function renderLastScan() {
   t.textContent = mins <= 1 ? '剛剛更新' : `${mins} 分鐘前更新`;
   el.className = `pill${mins > 10 ? ' stale' : ''}`;
   el.title = `最後一次抓取：${absTime(meta.lastTick)}`;
+  replayPulse(el);
+}
+
+/** 每次重新讀取資料後讓狀態點再擴散三次（動畫跑完就停，靜置時不耗資源） */
+function replayPulse(el) {
+  for (const a of el.querySelector('.dot')?.getAnimations?.({ subtree: true }) ?? []) { a.cancel(); a.play(); }
 }
 
 function renderHealth() {
@@ -459,8 +467,10 @@ function setFilterSheet(open) {
   sheet.classList.toggle('open', open);
   $('#filterBackdrop').hidden = !open;
   $('#openFilters').setAttribute('aria-expanded', String(open));
+  const wasOpen = document.documentElement.classList.contains('locked');
   document.documentElement.classList.toggle('locked', open);
   if (open) sheet.querySelector('.sheethead button')?.focus();
+  else if (wasOpen && mobile.matches) $('#openFilters').focus();
 }
 
 $('#openFilters').addEventListener('click', () => setFilterSheet(true));
@@ -674,6 +684,7 @@ $('#share').addEventListener('click', async () => {
 $('#autoRefresh').addEventListener('change', (e) => {
   clearInterval(timer);
   if (e.target.checked) timer = setInterval(tick, REFRESH_MS);
+  $('.status').classList.toggle('paused', !e.target.checked);
 });
 
 async function tick() {
@@ -684,52 +695,10 @@ async function tick() {
   } catch (err) { console.error(err); }
 }
 
-/* ---------- 頂部氛圍背景 ----------
-   桌面寬度、支援 WebGPU、沒有要求減少動態或省流量時，才從 CDN 延遲載入 shaders（MIT，鎖定版本，壓縮後約 700KB）；
-   其他情況留著 style.css 的靜態漸層。載入或初始化失敗都不影響頁面。 */
-const SHADERS_URL = 'https://cdn.jsdelivr.net/npm/shaders@4.0.7/js/+esm';
-const darkScheme = window.matchMedia('(prefers-color-scheme: dark)');
-let aura = null;
-
-async function startAura() {
-  const box = $('.aura');
-  const canvas = box?.querySelector('canvas');
-  const wanted =
-    canvas && 'gpu' in navigator && !mobile.matches &&
-    !window.matchMedia('(prefers-reduced-motion: reduce)').matches && !navigator.connection?.saveData;
-  if (!wanted) return;
-  try {
-    const { createShader } = await import(SHADERS_URL);
-    const css = getComputedStyle(document.documentElement);
-    const color = (n) => css.getPropertyValue(`--aura-${n}`).trim();
-    aura?.destroy();
-    aura = await createShader(
-      canvas,
-      {
-        components: [
-          { type: 'SolidColor', props: { color: color(4) } },
-          // 由上往下淡出的遮罩，讓漸層收在標題區，不延伸到資料表格後面
-          { type: 'Circle', id: 'fade', props: { visible: false, radius: 2, softness: 1, center: { x: 0.5, y: 0 } } },
-          { type: 'FlowingGradient', props: { colorA: color(1), colorB: color(2), colorC: color(3), colorD: color(4), colorSpace: 'oklab', speed: 0.3, distortion: 0.35, maskSource: 'fade' } },
-          { type: 'FilmGrain', props: { strength: darkScheme.matches ? 0.02 : 0.1 } },
-        ],
-      },
-      { disableTelemetry: true, onReady: () => box.classList.add('live') },
-    );
-  } catch (err) {
-    console.warn('氛圍背景沒有啟用，改用靜態漸層：', err);
-  }
-}
-darkScheme.addEventListener('change', () => {
-  if (!aura) return;
-  $('.aura').classList.remove('live');
-  startAura();
-});
-
 filtersFromUrl();
 await loadMeta();
 filtersFromUrl();
 fillStations();
 await refresh();
 timer = setInterval(tick, REFRESH_MS);
-(window.requestIdleCallback ?? ((fn) => setTimeout(fn, 200)))(() => startAura());
+(window.requestIdleCallback ?? ((fn) => setTimeout(fn, 200)))(() => import('/aura.js').then((m) => m.initAura()).catch(() => {}));

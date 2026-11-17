@@ -26,6 +26,8 @@ const fmtDate = (i, w) => { const [, m, d] = i.split('-'); return `${Number(m)}/
 const daysAway = (i) => Math.round((new Date(i) - new Date(data?.today ?? new Date().toISOString().slice(0, 10))) / 86400000);
 const shortType = (t) => (t?.name ?? '').replace(' (50cc以下)', '');
 const absTime = (t) => new Date(t).toLocaleString('zh-TW', { hour12: false });
+/** 給 <time datetime> 用；遇到不合法的時間不要讓整個列表渲染失敗 */
+const isoTime = (t) => { const d = new Date(t); return Number.isNaN(d.getTime()) ? '' : d.toISOString(); };
 
 function ago(t) {
   if (!t) return '—';
@@ -68,6 +70,8 @@ async function load() {
   meta = mt;
   if (st.error) {
     $('#stTitle').textContent = st.error;
+    $('#lastScan .t').textContent = '—';
+    $('#lastScan').className = 'pill idle';
     $('#slots tbody').innerHTML = '<tr><td colspan="6" class="empty">請從首頁選一個監理站。</td></tr>';
     fillSwitch();
     return;
@@ -115,6 +119,12 @@ function renderLastScan() {
   t.textContent = mins <= 1 ? '剛剛更新' : `${mins} 分鐘前更新`;
   el.className = `pill${mins > 10 ? ' stale' : ''}`;
   el.title = `最後一次抓取：${absTime(data.lastTick)}`;
+  replayPulse(el);
+}
+
+/** 每次重新讀取資料後讓狀態點再擴散三次（動畫跑完就停，靜置時不耗資源） */
+function replayPulse(el) {
+  for (const a of el.querySelector('.dot')?.getAnimations?.({ subtree: true }) ?? []) { a.cancel(); a.play(); }
 }
 
 const typesInScope = () => (activeType ? [activeType] : data.licenseTypes.map((t) => t.code));
@@ -302,7 +312,7 @@ function renderEvents() {
           <strong>${esc(shortType(byCode.get(e.license_type)) || e.license_type)}</strong>
           <div class="ev-sub" title="考試日期 ${esc(e.exam_date)}"><span class="d">${esc(fmtDate(e.exam_date))}</span>${delta}</div>
         </div>
-        <time class="ev-time" datetime="${new Date(e.at).toISOString()}" title="${esc(absTime(e.at))}">${ago(e.at)}</time>`;
+        <time class="ev-time" datetime="${isoTime(e.at)}" title="${esc(absTime(e.at))}">${ago(e.at)}</time>`;
       return li;
     }),
   );
@@ -347,48 +357,6 @@ $('#share').addEventListener('click', async () => {
   }, 1500);
 });
 
-/* ---------- 頂部氛圍背景 ----------
-   桌面寬度、支援 WebGPU、沒有要求減少動態或省流量時，才從 CDN 延遲載入 shaders（MIT，鎖定版本，壓縮後約 700KB）；
-   其他情況留著 style.css 的靜態漸層。載入或初始化失敗都不影響頁面。 */
-const SHADERS_URL = 'https://cdn.jsdelivr.net/npm/shaders@4.0.7/js/+esm';
-const darkScheme = window.matchMedia('(prefers-color-scheme: dark)');
-let aura = null;
-
-async function startAura() {
-  const box = $('.aura');
-  const canvas = box?.querySelector('canvas');
-  const wanted =
-    canvas && 'gpu' in navigator && window.matchMedia('(min-width: 721px)').matches &&
-    !window.matchMedia('(prefers-reduced-motion: reduce)').matches && !navigator.connection?.saveData;
-  if (!wanted) return;
-  try {
-    const { createShader } = await import(SHADERS_URL);
-    const css = getComputedStyle(document.documentElement);
-    const color = (n) => css.getPropertyValue(`--aura-${n}`).trim();
-    aura?.destroy();
-    aura = await createShader(
-      canvas,
-      {
-        components: [
-          { type: 'SolidColor', props: { color: color(4) } },
-          // 由上往下淡出的遮罩，讓漸層收在標題區，不延伸到資料表格後面
-          { type: 'Circle', id: 'fade', props: { visible: false, radius: 2, softness: 1, center: { x: 0.5, y: 0 } } },
-          { type: 'FlowingGradient', props: { colorA: color(1), colorB: color(2), colorC: color(3), colorD: color(4), colorSpace: 'oklab', speed: 0.3, distortion: 0.35, maskSource: 'fade' } },
-          { type: 'FilmGrain', props: { strength: darkScheme.matches ? 0.02 : 0.1 } },
-        ],
-      },
-      { disableTelemetry: true, onReady: () => box.classList.add('live') },
-    );
-  } catch (err) {
-    console.warn('氛圍背景沒有啟用，改用靜態漸層：', err);
-  }
-}
-darkScheme.addEventListener('change', () => {
-  if (!aura) return;
-  $('.aura').classList.remove('live');
-  startAura();
-});
-
 await load();
-(window.requestIdleCallback ?? ((fn) => setTimeout(fn, 200)))(() => startAura());
+(window.requestIdleCallback ?? ((fn) => setTimeout(fn, 200)))(() => import('/aura.js').then((m) => m.initAura()).catch(() => {}));
 setInterval(() => load().catch(console.error), REFRESH_MS);

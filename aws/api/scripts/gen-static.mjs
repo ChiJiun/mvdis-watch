@@ -15,6 +15,10 @@ const FILES = {
   'app.js': 'text/javascript; charset=utf-8',
   'station.js': 'text/javascript; charset=utf-8',
   'style.css': 'text/css; charset=utf-8',
+  'aura.js': 'text/javascript; charset=utf-8',
+  // 儀表板頂部背景用的 shaders 套件（同源托管，不從第三方 CDN 載入；授權見 LICENSE 檔）
+  'vendor/shaders-4.0.7.js': 'text/javascript; charset=utf-8',
+  'vendor/shaders-4.0.7.LICENSE.txt': 'text/plain; charset=utf-8',
 };
 
 const entries = Object.entries(FILES).map(([name, type]) => {

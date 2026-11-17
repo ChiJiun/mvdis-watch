@@ -101,6 +101,11 @@ button, a, select, input, summary, .chip, .card, .track { transition: background
     radial-gradient(50% 90% at 62% 0%, var(--aura-2), transparent 70%),
     radial-gradient(45% 100% at 100% 0%, var(--aura-3), transparent 72%);
 }
+/* 套件看到的是縮小後的 .stage，再用 transform 放大回原尺寸，藉此壓低繪製解析度（倍數由 aura.js 設定） */
+.aura .stage {
+  position: absolute; top: 0; left: 0; transform-origin: 0 0; transform: scale(var(--aura-scale, 1));
+  width: calc(100% / var(--aura-scale, 1)); height: calc(100% / var(--aura-scale, 1));
+}
 .aura canvas { display: block; width: 100%; height: 100%; opacity: 0; transition: opacity 1.2s ease; }
 .aura.live canvas { opacity: 1; }
 /* canvas 底緣和頁面底色之間的接縫用一小段漸層蓋掉 */
@@ -130,13 +135,21 @@ a.brand:hover strong { color: var(--accent); }
   font-size: 13px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums;
   border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: var(--panel);
 }
-.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); animation: pulse 2.4s ease-out infinite; }
+/* 狀態點：每次資料更新後擴散三次就停（JS 重新播放），只動 transform／opacity，靜置時不耗主執行緒 */
+.pill .dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.pill .dot::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--good); opacity: 0;
+  animation: pulse 1.6s ease-out 3;
+}
 .pill.stale { color: var(--hot); border-color: color-mix(in srgb, var(--hot) 45%, var(--line)); }
-.pill.stale .dot { background: var(--hot); animation: none; box-shadow: 0 0 0 3px var(--hot-soft); }
-.pill.idle .dot, .status:has(#autoRefresh:not(:checked)) .pill:not(.stale) .dot { background: var(--muted); animation: none; }
+.pill.stale .dot { background: var(--hot); box-shadow: 0 0 0 3px var(--hot-soft); }
+.pill.stale .dot::after, .pill.idle .dot::after { animation: none; }
+.pill.idle .dot { background: var(--muted); }
+.paused .pill:not(.stale) .dot { background: var(--muted); }
+.paused .pill .dot::after { animation: none; }
 @keyframes pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent); }
-  70%, 100% { box-shadow: 0 0 0 7px transparent; }
+  from { transform: scale(1); opacity: .6; }
+  to { transform: scale(2.8); opacity: 0; }
 }
 
 .iconbtn {
@@ -147,10 +160,11 @@ a.brand:hover strong { color: var(--accent); }
 .iconbtn .i-ok, .iconbtn.done .i-def { display: none; }
 .iconbtn.done { color: var(--good); border-color: var(--good); }
 .iconbtn.done .i-ok { display: block; }
-/* 自動更新：打開時顯示「暫停」，關掉時顯示「播放」 */
-.iconbtn.toggle .i-play, .iconbtn.toggle:has(input:not(:checked)) .i-pause { display: none; }
-.iconbtn.toggle:has(input:not(:checked)) .i-play { display: block; }
-.iconbtn.toggle:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 自動更新：打開時顯示「暫停」，關掉時顯示「播放」（.paused 由 JS 設定，不依賴 :has()） */
+.iconbtn.toggle .i-play, .paused .iconbtn.toggle .i-pause { display: none; }
+.paused .iconbtn.toggle .i-play { display: block; }
+.iconbtn.toggle:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.iconbtn.toggle:has(input:focus:not(:focus-visible)) { outline: none; }
 
 /* ---------- 共用元件 ---------- */
 .panel {
@@ -173,7 +187,7 @@ a.brand:hover strong { color: var(--accent); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .chip .n { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .chip.on .n { color: inherit; opacity: .85; }
-.chip.zero { opacity: .55; }
+.chip.zero { color: var(--muted); background: var(--panel-2); border-style: dashed; }
 .chip.check input { accent-color: var(--accent); margin: 0; width: 15px; height: 15px; cursor: pointer; }
 .chip input.tiny { height: 24px; width: 58px; padding: 0 6px; font-size: 13px; border-radius: 6px; cursor: text; }
 .chip.check:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
@@ -183,7 +197,7 @@ a.brand:hover strong { color: var(--accent); }
   font-size: 13.5px; border: 0; background: transparent; color: var(--muted); border-radius: 7px;
   padding: 0 14px; height: 30px; white-space: nowrap; font-weight: 500;
 }
-.seg button .n { font-size: 12px; font-variant-numeric: tabular-nums; margin-left: 5px; opacity: .8; }
+.seg button .n { font-size: 12px; font-variant-numeric: tabular-nums; margin-left: 5px; }
 .seg button:hover { color: var(--ink); }
 .seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(15, 23, 42, .14); font-weight: 600; }
 @media (prefers-color-scheme: dark) { .seg button.on { background: var(--accent-soft); color: var(--accent); box-shadow: none; } }
@@ -217,7 +231,7 @@ select:hover, input:hover { border-color: color-mix(in srgb, var(--accent) 50%, 
 /* ---------- 總覽：各監理所卡片 ---------- */
 .overview { margin: 26px 0 18px; }
 .sechead { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; margin-bottom: 14px; }
-.sechead h2 { font-size: 24px; margin: 0; letter-spacing: -.01em; }
+.sechead h1 { font-size: 24px; margin: 0; letter-spacing: -.01em; }
 .summary { margin: 0; color: var(--ink-2); font-size: 14px; display: flex; gap: 14px; align-items: baseline; }
 .summary b { color: var(--ink); font-family: var(--num); font-size: 20px; font-weight: 700; letter-spacing: -.02em; margin-right: 3px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
@@ -331,7 +345,7 @@ tr.watched td:first-child { box-shadow: 3px 0 0 var(--star) inset; }
 
 .starbtn {
   display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; background: none; border: 0; border-radius: 8px;
-  color: color-mix(in srgb, var(--muted) 65%, transparent);
+  color: var(--muted);
 }
 .starbtn .ic { width: 18px; height: 18px; }
 .starbtn:hover { color: var(--star); background: color-mix(in srgb, var(--star) 12%, transparent); }
@@ -411,7 +425,7 @@ footer { padding: 28px 20px 48px; color: var(--muted); }
 
 /* ---------- 每站頁面 ---------- */
 .sthead { margin: 26px 0 14px; }
-.sthead h2 { font-size: 24px; margin: 0 0 4px; letter-spacing: -.01em; }
+.sthead h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -.01em; }
 .sthead .addr { margin: 0; font-size: 13.5px; color: var(--ink-2); }
 .sthead .addr a { white-space: nowrap; }
 .typesrow { margin-bottom: 14px; }
@@ -464,7 +478,7 @@ footer { padding: 28px 20px 48px; color: var(--muted); }
 
   .overview { margin: 18px 0 12px; }
   .sechead { margin-bottom: 12px; }
-  .sechead h2 { font-size: 20px; }
+  .sechead h1 { font-size: 20px; }
   .summary { font-size: 13px; gap: 10px; }
   .summary b { font-size: 17px; }
   /* 卡片改成可橫滑的一列，省垂直空間 */
@@ -481,7 +495,7 @@ footer { padding: 28px 20px 48px; color: var(--muted); }
 
   /* 篩選：照類常駐，其餘收進底部抽屜 */
   .filters { background: transparent; border: 0; box-shadow: none; margin-bottom: 12px; }
-  .typebar { padding: 0; border: 0; flex-direction: column; align-items: stretch; gap: 8px; }
+  .typebar { padding: 0; border: 0; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 8px; }
   .scrollx {
     display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
     margin: 0 -14px; padding: 0 14px;
@@ -597,7 +611,7 @@ footer { padding: 28px 20px 48px; color: var(--muted); }
 
   /* 每站頁面 */
   .sthead { margin: 18px 0 12px; }
-  .sthead h2 { font-size: 20px; }
+  .sthead h1 { font-size: 20px; }
   .typesrow { margin-bottom: 12px; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
   .tile { padding: 10px 12px; }
