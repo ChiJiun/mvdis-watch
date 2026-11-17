@@ -426,6 +426,7 @@ describe('AWS 版自己的行為', () => {
       ['/station.js', 'station.js', 'text/javascript'],
       ['/style.css', 'style.css', 'text/css'],
       ['/station.html', 'station.html', 'text/html'],
+      ['/aura.js', 'aura.js', 'text/javascript'],
     ];
     for (const [path, file, type] of files) {
       const r = await askApi(path);
@@ -437,6 +438,24 @@ describe('AWS 版自己的行為', () => {
       const again = await askApi(path, { headers: { 'If-None-Match': etag } });
       assert.equal(again.status, 304, path);
     }
+  });
+
+  test('同源托管的 shaders 套件與授權檔：內容和 public/vendor/ 相同、長期快取', async () => {
+    const files: Array<[string, string]> = [
+      ['vendor/shaders-4.0.7.js', 'text/javascript'],
+      ['vendor/shaders-4.0.7.LICENSE.txt', 'text/plain'],
+    ];
+    for (const [file, type] of files) {
+      const r = await askApi(`/${file}`);
+      assert.equal(r.status, 200, file);
+      assert.equal(r.text, readFileSync(new URL(`public/${file}`, ROOT), 'utf8'), file);
+      assert.ok(r.headers.get('content-type')!.startsWith(type), file);
+      assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000', file);
+    }
+    // 白名單只開放這兩個檔案，vendor/ 底下其他路徑都是 404
+    assert.equal((await askApi('/vendor/')).status, 404);
+    assert.equal((await askApi('/vendor/shaders-4.0.7.js.map')).status, 404);
+    assert.equal((await askApi('/vendor/shaders.js')).status, 404);
   });
 
   test('每站頁面：Host 標頭只接受主機名稱，其餘退回 localhost；PUBLIC_ORIGIN 優先', async () => {

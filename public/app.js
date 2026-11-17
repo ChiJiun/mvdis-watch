@@ -2,8 +2,11 @@ const MVDIS_SIGNUP = 'https://www.mvdis.gov.tw/m3-emv-trn/exm/locations';
 const REFRESH_MS = 30_000;
 const WATCH_KEY = 'mvdis-watch:watchlist';
 const TOKEN_KEY = 'mvdis-watch:admin-token';
+const STAR_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg>';
+const EXTERNAL_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 
 const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
 const form = $('#filters');
 
 let meta = null;
@@ -22,13 +25,40 @@ const TYPE_GROUPS = [
 ];
 let activeGroup = '';
 
+/* ---------- 小工具 ---------- */
+
+/** API 與官網來的字串（場次附註、webhook 網址、錯誤訊息）一律跳脫後才放進 innerHTML */
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const fmtNum = (n) => Number(n ?? 0).toLocaleString('zh-TW');
+const shortType = (code) => (licenseByCode.get(code)?.name ?? code).replace(' (50cc以下)', '');
+const typeName = (code) => licenseByCode.get(code)?.name ?? code;
+const stationName = (no) => stationByNo.get(no)?.name ?? no;
+const absTime = (t) => new Date(t).toLocaleString('zh-TW', { hour12: false });
+/** 給 <time datetime> 用；遇到不合法的時間不要讓整個列表渲染失敗 */
+const isoTime = (t) => { const d = new Date(t); return Number.isNaN(d.getTime()) ? '' : d.toISOString(); };
+
+function ago(t) {
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 1) return '剛剛';
+  if (m < 60) return `${m} 分鐘前`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} 小時前`;
+  return `${Math.round(h / 24)} 天前`;
+}
+
+/** 場次附註：官網的 sec_desc 第一行是「上午場次, 組別 3」，跟 session/grp 重複，只取後面的說明 */
+function sessionNote(desc) {
+  const lines = String(desc ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  return lines.slice(1).join(' ');
+}
+
 /* ---------- 追蹤清單 ---------- */
 
 function loadWatch() {
   try { return new Set(JSON.parse(localStorage.getItem(WATCH_KEY) ?? '[]')); }
   catch { return new Set(); }
 }
-const saveWatch = () => localStorage.setItem(WATCH_KEY, JSON.stringify([...watch]));
+const saveWatch = () => { try { localStorage.setItem(WATCH_KEY, JSON.stringify([...watch])); } catch {} };
 const watchKey = (t, d) => `${t}|${d}`;
 
 /* ---------- 篩選條件 <-> 網址 ---------- */
@@ -117,6 +147,7 @@ async function refresh() {
   renderStationLinks();
   renderTypeControls();
   renderDateChips();
+  renderActiveTags(f);
   renderTable(rows, f);
   renderEvents(events.rows ?? []);
   updateBadge(avail.rows ?? []);
@@ -126,8 +157,8 @@ async function refresh() {
 /* ---------- 分區總覽 ---------- */
 
 function renderCards() {
-  const byLv1 = new Map(meta.offices.map((o) => [o.lv1, { slots: 0, seats: 0, stations: new Set() }]));
-  for (const s of meta.stations) byLv1.get(s.lv1)?.stations.add(s.no);
+  const byLv1 = new Map(meta.offices.map((o) => [o.lv1, new Set()]));
+  for (const s of meta.stations) byLv1.get(s.lv1)?.add(s.no);
 
   const agg = new Map(meta.offices.map((o) => [o.lv1, { slots: 0, seats: 0 }]));
   for (const r of overview) {
@@ -140,13 +171,13 @@ function renderCards() {
   const max = Math.max(1, ...[...agg.values()].map((a) => a.slots));
   const total = [...agg.values()].reduce((x, a) => x + a.slots, 0);
   const seats = [...agg.values()].reduce((x, a) => x + a.seats, 0);
-  $('#ovSummary').textContent = total
-    ? `全台 ${total} 個場次還有位，合計 ${seats} 個名額`
-    : '全台目前完全沒有餘額';
+  $('#ovSummary').innerHTML = total
+    ? `<span><b>${fmtNum(total)}</b>場</span><span><b>${fmtNum(seats)}</b>位</span>`
+    : '全台額滿';
 
   const active = form.elements.lv1.value;
   const sorted = meta.offices
-    .map((o) => ({ ...o, ...agg.get(o.lv1), total: byLv1.get(o.lv1)?.stations.size ?? 0 }))
+    .map((o) => ({ ...o, ...agg.get(o.lv1), total: byLv1.get(o.lv1)?.size ?? 0 }))
     .sort((a, b) => b.slots - a.slots);
 
   $('#cards').replaceChildren(
@@ -155,12 +186,13 @@ function renderCards() {
       b.type = 'button';
       b.className = `card${o.slots === 0 ? ' zero' : ''}${active === o.lv1 ? ' on' : ''}`;
       b.dataset.lv1 = o.lv1;
+      b.setAttribute('aria-pressed', String(active === o.lv1));
+      b.title = `${o.total} 個監理站`;
       const short = o.name.replace(/（.*）/, '');
       const area = (o.name.match(/（(.*)）/) || [, ''])[1];
       b.innerHTML = `
-        <span class="nm">${short}</span>
-        <span class="big${o.slots === 0 ? ' none' : ''}">${o.slots === 0 ? '全額滿' : o.slots}</span>
-        <span class="sub">${area ? area + ' · ' : ''}${o.total} 站${o.slots ? ` · ${o.seats} 個名額` : ''}</span>
+        <span class="nm">${esc(short)}${area ? `<span class="area">${esc(area)}</span>` : ''}</span>
+        <span class="big">${o.slots === 0 ? '<b>額滿</b>' : `<b>${fmtNum(o.slots)}</b>場<span class="seats">${fmtNum(o.seats)} 位</span>`}</span>
         <span class="bar"><i style="width:${(o.slots / max) * 100}%"></i></span>`;
       return b;
     }),
@@ -180,10 +212,10 @@ function renderStationLinks() {
         .filter((s) => s.lv1 === o.lv1)
         .map((s) => {
           const n = open.get(s.no) ?? 0;
-          return `<a class="chip${n ? '' : ' zero'}" href="/station/${s.no}" title="${s.address}">${s.name} <span class="n">${n || '滿'}</span></a>`;
+          return `<a class="chip${n ? '' : ' zero'}" href="/station/${esc(s.no)}" title="${esc(s.address)}">${esc(s.name)} <span class="n">${n || '滿'}</span></a>`;
         })
         .join('');
-      g.innerHTML = `<h3>${o.name}</h3><div class="chips">${chips}</div>`;
+      g.innerHTML = `<h3>${esc(o.name)}</h3><div class="chips">${chips}</div>`;
       return g;
     }),
   );
@@ -191,44 +223,39 @@ function renderStationLinks() {
 
 /* ---------- 照類 / 日期 ---------- */
 
-function typeCounts() {
-  const n = new Map();
-  for (const r of overview) n.set(r.license_type, (n.get(r.license_type) ?? 0) + r.slots);
-  return n;
-}
-
 function renderTypeControls() {
-  const counts = typeCounts();
   const lv1 = form.elements.lv1.value;
   const inScope = (code) =>
     overview
       .filter((r) => r.license_type === code && (!lv1 || stationByNo.get(r.dmv_no)?.lv1 === lv1))
       .reduce((a, r) => a + r.slots, 0);
+  const allCodes = meta.licenseTypes.map((t) => t.code);
 
   $('#typeGroups').replaceChildren(
     ...TYPE_GROUPS.map((g) => {
-      const n = g.codes ? g.codes.reduce((a, c) => a + inScope(c), 0) : [...counts.values()].reduce((a, b) => a + b, 0);
+      const n = (g.codes ?? allCodes).reduce((a, c) => a + inScope(c), 0);
       const b = document.createElement('button');
       b.type = 'button';
       b.dataset.group = g.key;
       b.className = activeGroup === g.key ? 'on' : '';
-      b.textContent = `${g.name} ${n}`;
+      b.setAttribute('aria-pressed', String(activeGroup === g.key));
+      b.innerHTML = `${g.name}<span class="n">${fmtNum(n)}</span>`;
       return b;
     }),
   );
 
   // 只列出這個分組裡「真的有位」的照類，避免十種照類擠滿整行
-  const codes = TYPE_GROUPS.find((g) => g.key === activeGroup)?.codes ?? meta.licenseTypes.map((t) => t.code);
+  const codes = TYPE_GROUPS.find((g) => g.key === activeGroup)?.codes ?? allCodes;
   const cur = form.elements.licenseType.value;
   const shown = codes.filter((c) => inScope(c) > 0 || c === cur);
   $('#typeChips').replaceChildren(
     ...shown.map((c) => {
-      const t = licenseByCode.get(c);
       const b = document.createElement('button');
       b.type = 'button';
       b.dataset.type = c;
       b.className = `chip${cur === c ? ' on' : ''}`;
-      b.innerHTML = `${(t?.name ?? c).replace(' (50cc以下)', '')} <span class="n">${inScope(c)}</span>`;
+      b.setAttribute('aria-pressed', String(cur === c));
+      b.innerHTML = `${esc(shortType(c))} <span class="n">${fmtNum(inScope(c))}</span>`;
       return b;
     }),
   );
@@ -255,8 +282,50 @@ function renderDateChips() {
       b.type = 'button';
       b.dataset.from = p.from;
       b.dataset.to = p.to;
-      b.className = `chip${from === p.from && to === p.to ? ' on' : ''}`;
+      const on = from === p.from && to === p.to;
+      b.className = `chip${on ? ' on' : ''}`;
+      b.setAttribute('aria-pressed', String(on));
       b.textContent = p.name;
+      return b;
+    }),
+  );
+}
+
+/* ---------- 目前套用的條件（手機上顯示在清單上方，可逐一點掉） ---------- */
+
+function activeTags(f) {
+  const tags = [];
+  if (f.lv1) {
+    const o = meta.offices.find((x) => x.lv1 === f.lv1);
+    tags.push({ label: (o?.name ?? f.lv1).replace(/（.*）/, ''), clear: ['lv1'], sheet: false });
+  }
+  if (f.from || f.to) {
+    const p = datePresets().find((x) => x.from === f.from && x.to === f.to);
+    const md = (s) => (s ? s.slice(5).replace('-', '/').replace(/^0/, '').replace('/0', '/') : '…');
+    tags.push({ label: p ? p.name : `${md(f.from)} → ${md(f.to)}`, clear: ['from', 'to'], sheet: true });
+  }
+  if (f.county) tags.push({ label: f.county, clear: ['county'], sheet: true });
+  if (f.dmvNo) tags.push({ label: stationName(f.dmvNo), clear: ['dmvNo'], sheet: true });
+  if (f.minQuota && f.minQuota !== '1') tags.push({ label: `餘額 ≥ ${f.minQuota}`, clear: ['minQuota'], sheet: true });
+  if (f.weekendOnly) tags.push({ label: '只看假日', clear: ['weekendOnly'], sheet: true });
+  if (f.watchedOnly) tags.push({ label: '只看追蹤', clear: ['watchedOnly'], sheet: true });
+  return tags;
+}
+
+function renderActiveTags(f) {
+  const tags = activeTags(f);
+  const n = tags.filter((t) => t.sheet).length;
+  const badge = $('#filterCount');
+  badge.hidden = n === 0;
+  badge.textContent = String(n);
+  $('#clearFilters').hidden = !(tags.length || f.licenseType || f.group);
+  $('#activeTags').replaceChildren(
+    ...tags.map((t) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.clear = t.clear.join(',');
+      b.title = `移除條件：${t.label}`;
+      b.innerHTML = `${esc(t.label)}<span class="x" aria-hidden="true">✕</span>`;
       return b;
     }),
   );
@@ -264,40 +333,51 @@ function renderDateChips() {
 
 /* ---------- 表格 / 事件 ---------- */
 
-const fmtDate = (i, w) => { const [, m, d] = i.split('-'); return `${Number(m)}/${Number(d)} ${w ?? ''}`.trim(); };
+const fmtDate = (i, w) => { const [, m, d] = i.split('-'); return `${Number(m)}/${Number(d)}${w ? ' ' + String(w).replace('星期', '週') : ''}`; };
 const daysAway = (i) => Math.round((new Date(i) - new Date(meta?.today ?? iso(new Date()))) / 86400000);
+
+function dateCell(r) {
+  const away = daysAway(r.exam_date);
+  const soon = away <= 7 ? `<span class="tag soon">${away <= 0 ? '今天' : away + ' 天後'}</span>` : '';
+  const wk = r.is_weekend ? '<span class="tag wk">假日</span>' : '';
+  return `<span class="d">${esc(fmtDate(r.exam_date, r.weekday))}</span>${soon}${wk}`;
+}
+
+function sessCell(r) {
+  const note = sessionNote(r.sec_desc);
+  const s = [r.session, r.grp != null && r.grp !== '' ? `組別 ${r.grp}` : ''].filter(Boolean).join('・');
+  return `<span class="s">${esc(s)}</span>${note ? `<span class="note" title="${esc(note)}">${esc(note)}</span>` : ''}`;
+}
 
 function renderTable(rows, f = {}) {
   const tbody = $('#avail tbody');
-  $('#count').textContent = rows.length ? `${rows.length} 個場次` : '';
+  $('#count').textContent = rows.length ? `${fmtNum(rows.length)} 場` : '';
+  $('#applyFilters').textContent = rows.length ? `看 ${fmtNum(rows.length)} 場` : '沒有符合的場次';
 
   if (!rows.length) {
     const why = f.weekendOnly
-      ? '目前全台都沒有開放週末假日場次。<br>監理站的假日場次是不定期加開的，取消勾選可看平日場次。'
+      ? '目前沒有假日場次'
       : f.watchedOnly
-        ? '你追蹤的組合目前都額滿。<br>綁定通知後，一有人退考就會推播給你。'
-        : '目前沒有符合條件的餘額。<br>上方卡片可以看哪個區還有位。';
-    tbody.innerHTML = `<tr><td colspan="7" class="empty">${why}</td></tr>`;
+        ? '追蹤的組合目前都額滿'
+        : '沒有符合條件的場次';
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">${why}</td></tr>`;
     return;
   }
 
   tbody.replaceChildren(
     ...rows.map((r) => {
-      const st = stationByNo.get(r.dmv_no);
-      const lt = licenseByCode.get(r.license_type);
       const key = watchKey(r.license_type, r.dmv_no);
       const on = watch.has(key);
-      const away = daysAway(r.exam_date);
       const tr = document.createElement('tr');
       if (on) tr.className = 'watched';
+      const label = `${stationName(r.dmv_no)}・${shortType(r.license_type)}`;
       tr.innerHTML = `
-        <td class="star"><button type="button" class="starbtn ${on ? 'on' : ''}" data-key="${key}" title="追蹤">${on ? '★' : '☆'}</button></td>
-        <td class="${away <= 7 ? 'soon' : ''}">${fmtDate(r.exam_date, r.weekday)}${away <= 7 ? ` <small>${away <= 0 ? '今天' : away + '天後'}</small>` : ''}</td>
-        <td><a class="st" href="/station/${r.dmv_no}?type=${r.license_type}" title="看這一站的完整場次表與釋位統計">${st ? st.name : r.dmv_no}</a></td>
-        <td>${lt ? lt.name : r.license_type}</td>
-        <td class="num"><span class="qty ${r.quota <= 3 ? 'low' : ''}">${r.quota}</span></td>
-        <td class="desc">${r.session ?? ''}場次 組別${r.grp ?? '-'}</td>
-        <td><a class="signup" href="${MVDIS_SIGNUP}" target="_blank" rel="noopener">前往報名</a></td>`;
+        <td class="c-star"><button type="button" class="starbtn${on ? ' on' : ''}" data-key="${esc(key)}" aria-pressed="${on}" aria-label="追蹤 ${esc(label)}" title="${on ? '取消追蹤' : '追蹤'}：${esc(label)}">${STAR_ICON}</button></td>
+        <td class="c-date">${dateCell(r)}</td>
+        <td class="c-st"><a class="st" href="/station/${esc(r.dmv_no)}?type=${esc(r.license_type)}" title="看這一站的完整場次表與釋位統計">${esc(stationName(r.dmv_no))}</a><span class="ty"><span class="dotsep"> · </span>${esc(typeName(r.license_type))}</span></td>
+        <td class="c-qty num"><span class="qty${r.quota <= 3 ? ' low' : ''}">${esc(r.quota)}<span class="u"> 位</span></span></td>
+        <td class="c-sess">${sessCell(r)}</td>
+        <td class="c-act"><a class="signup" href="${MVDIS_SIGNUP}" target="_blank" rel="noopener" title="前往監理服務網報名">報名${EXTERNAL_ICON}</a></td>`;
       return tr;
     }),
   );
@@ -305,31 +385,44 @@ function renderTable(rows, f = {}) {
 
 const KIND_LABEL = { released: '釋出', increased: '增加', decreased: '減少', filled: '額滿', new: '新場次', gone: '移除' };
 
+function eventDelta(e) {
+  if (e.kind === 'filled' || e.kind === 'gone') return '';
+  if (e.kind === 'released' || e.kind === 'new' || e.old_quota == null) return ` · <b>${esc(e.new_quota)} 位</b>`;
+  return ` · ${esc(e.old_quota)} → <b>${esc(e.new_quota)} 位</b>`;
+}
+
 function renderEvents(rows) {
   const ul = $('#events');
+  const more = $('#moreEvents');
   if (!rows.length) {
-    ul.innerHTML = '<li class="empty">還沒有記錄到變化。<br>掃描累積一段時間後才會有資料。</li>';
+    ul.innerHTML = '<li class="empty">還沒有記錄到變動</li>';
+    more.hidden = true;
     return;
   }
   ul.replaceChildren(
     ...rows.map((e) => {
-      const st = stationByNo.get(e.dmv_no);
-      const lt = licenseByCode.get(e.license_type);
+      const kind = KIND_LABEL[e.kind] ? e.kind : 'other';
       const li = document.createElement('li');
-      const delta =
-        e.kind === 'released' || e.kind === 'increased' || e.kind === 'new' ? `→ ${e.new_quota} 位`
-        : e.kind === 'filled' ? '→ 額滿'
-        : e.kind === 'gone' ? '→ 已移除'
-        : `${e.old_quota} → ${e.new_quota} 位`;
+      li.className = `ev ev-${kind}`;
       li.innerHTML = `
-        <div><span class="ev-kind ev-${e.kind}">${KIND_LABEL[e.kind] ?? e.kind}</span>
-          <a class="st" href="/station/${e.dmv_no}?type=${e.license_type}"><strong>${st ? st.name : e.dmv_no}</strong></a> · ${lt ? lt.name : e.license_type}</div>
-        <div>${fmtDate(e.exam_date)} ${delta}</div>
-        <div class="ev-time">${new Date(e.at).toLocaleString('zh-TW', { hour12: false })}</div>`;
+        <span class="ev-kind">${esc(KIND_LABEL[e.kind] ?? e.kind)}</span>
+        <div class="ev-main">
+          <a class="st" href="/station/${esc(e.dmv_no)}?type=${esc(e.license_type)}"><strong>${esc(stationName(e.dmv_no))}</strong></a> · ${esc(shortType(e.license_type))}
+          <div class="ev-sub" title="考試日期 ${esc(e.exam_date)}"><span class="d">${esc(fmtDate(e.exam_date))}</span>${eventDelta(e)}</div>
+        </div>
+        <time class="ev-time" datetime="${isoTime(e.at)}" title="${esc(absTime(e.at))}">${ago(e.at)}</time>`;
       return li;
     }),
   );
+  const hiddenCount = Math.max(0, rows.length - 8);
+  more.hidden = hiddenCount === 0 || ul.classList.contains('expanded');
+  more.textContent = `再顯示 ${hiddenCount} 筆`;
 }
+
+$('#moreEvents').addEventListener('click', () => {
+  $('#events').classList.add('expanded');
+  $('#moreEvents').hidden = true;
+});
 
 function updateBadge(all) {
   const n = all.filter((r) => watch.has(watchKey(r.license_type, r.dmv_no))).length;
@@ -338,22 +431,74 @@ function updateBadge(all) {
 
 function renderLastScan() {
   const el = $('#lastScan');
-  if (!meta?.lastTick) { el.textContent = '尚未掃描'; return; }
+  const t = el.querySelector('.t');
+  if (!meta?.lastTick) { t.textContent = '尚未掃描'; el.className = 'pill idle'; return; }
   const mins = Math.round((Date.now() - meta.lastTick) / 60000);
-  el.textContent = mins <= 1 ? '剛剛更新' : `${mins} 分鐘前更新`;
-  el.classList.toggle('stale', mins > 10);
+  t.textContent = mins <= 1 ? '剛剛更新' : `${mins} 分鐘前更新`;
+  el.className = `pill${mins > 10 ? ' stale' : ''}`;
+  el.title = `最後一次抓取：${absTime(meta.lastTick)}`;
+  replayPulse(el);
+}
+
+/**
+ * 每次重新讀取資料後讓狀態點再擴散三次（動畫跑完就停，靜置時不耗資源）。
+ * 跑完的 CSS 動畫不會再出現在 getAnimations() 裡，所以用「拿掉 .beat → 強制重排 → 加回」重新觸發。
+ */
+function replayPulse(el) {
+  el.classList.remove('beat');
+  void el.offsetWidth;
+  el.classList.add('beat');
 }
 
 function renderHealth() {
   const h = meta?.health ?? {};
-  const parts = [`已掃描組合 ${h.combos ?? 0} / 360`, `降頻（長期無場次） ${h.pruned ?? 0}`, `抓取異常 ${h.failing ?? 0}`];
-  if (h.oldest) parts.push(`最舊一筆 ${new Date(h.oldest).toLocaleString('zh-TW', { hour12: false })}`);
-  $('#health').innerHTML = parts.map((p) => `<span>${p}</span>`).join('');
+  const parts = [
+    [`掃描 ${h.combos ?? 0}/360`, '已掃描的 監理站×照類 組合數'],
+    [`降頻 ${h.pruned ?? 0}`, '長期沒有場次、改成每 24 小時複查的組合數'],
+    [`異常 ${h.failing ?? 0}`, '最近一次抓取失敗的組合數', h.failing ? 'bad' : ''],
+  ];
+  if (h.oldest) parts.push([`最舊 ${absTime(h.oldest)}`, '最久沒更新的那一筆資料的時間']);
+  $('#health').innerHTML = parts
+    .map(([p, title, cls]) => `<span${cls ? ` class="${cls}"` : ''} title="${esc(title)}">${esc(p)}</span>`)
+    .join('');
 }
+
+/* ---------- 手機的篩選抽屜 ---------- */
+
+const mobile = window.matchMedia('(max-width: 720px)');
+
+function setFilterSheet(open) {
+  const sheet = $('#moreFilters');
+  sheet.classList.toggle('open', open);
+  $('#filterBackdrop').hidden = !open;
+  $('#openFilters').setAttribute('aria-expanded', String(open));
+  const wasOpen = document.documentElement.classList.contains('locked');
+  document.documentElement.classList.toggle('locked', open);
+  if (open) sheet.querySelector('.sheethead button')?.focus();
+  else if (wasOpen && mobile.matches) $('#openFilters').focus();
+}
+
+$('#openFilters').addEventListener('click', () => setFilterSheet(true));
+form.addEventListener('click', (e) => {
+  if (e.target.closest('[data-close-filters]')) setFilterSheet(false);
+});
+mobile.addEventListener('change', (e) => { if (!e.matches) setFilterSheet(false); });
+
+$('#activeTags').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-clear]');
+  if (!b) return;
+  for (const name of b.dataset.clear.split(',')) {
+    const el = form.elements[name];
+    if (el.type === 'checkbox') el.checked = false;
+    else el.value = name === 'minQuota' ? '1' : '';
+  }
+  fillStations();
+  refresh();
+});
 
 /* ---------- 通知設定 ---------- */
 
-const token = () => localStorage.getItem(TOKEN_KEY) ?? '';
+const token = () => { try { return localStorage.getItem(TOKEN_KEY) ?? ''; } catch { return ''; } };
 const authHeaders = () => ({ 'x-admin-token': token(), 'Content-Type': 'application/json' });
 
 async function loadSubs() {
@@ -361,31 +506,32 @@ async function loadSubs() {
   if (!token()) { box.innerHTML = '<p class="mini">請先輸入管理密碼。</p>'; return; }
   const res = await fetch('/api/subscriptions', { headers: authHeaders() });
   if (res.status === 401) { box.innerHTML = '<p class="mini bad">管理密碼不正確。</p>'; return; }
+  if (!res.ok) { box.innerHTML = `<p class="mini bad">讀取訂閱失敗（HTTP ${res.status}）。這個部署可能沒有提供訂閱功能。</p>`; return; }
   const { rows } = await res.json();
   if (!rows.length) { box.innerHTML = '<p class="mini">還沒有訂閱。</p>'; return; }
 
   box.replaceChildren(
     ...rows.map((s) => {
       const div = document.createElement('div');
-      div.className = 'sub';
+      div.className = 'subitem';
       const scope = s.watches.length
-        ? s.watches.map((w) => `${stationByNo.get(w.dmvNo)?.name ?? w.dmvNo}·${(licenseByCode.get(w.licenseType)?.name ?? w.licenseType).replace(' (50cc以下)', '')}`).join('、')
-        : '全台所有組合（很吵）';
+        ? s.watches.map((w) => `${stationName(w.dmvNo)}·${shortType(w.licenseType)}`).join('、')
+        : '全台所有組合';
       const state = s.last_error
-        ? `<span class="bad">最近失敗：${s.last_error}</span>`
+        ? `<span class="bad">最近失敗：${esc(s.last_error)}</span>`
         : s.last_sent_at
-          ? `<span class="ok">最近送出：${new Date(s.last_sent_at).toLocaleString('zh-TW', { hour12: false })}</span>`
+          ? `<span class="ok">最近送出：${esc(absTime(s.last_sent_at))}</span>`
           : '尚未送過';
       div.innerHTML = `
         <div class="grow">
-          <div><strong>${s.label || 'Discord'}</strong> <span class="mini">#${s.id}</span></div>
-          <div class="tgt">${s.target}</div>
-          <div class="mini">盯著：${scope}</div>
+          <div><strong>${esc(s.label || 'Discord')}</strong> <span class="mini">#${esc(s.id)}</span></div>
+          <div class="tgt">${esc(s.target)}</div>
+          <div class="mini">${esc(scope)}</div>
           <div class="mini">${state}</div>
         </div>
         <div class="acts">
-          <button type="button" class="ghost" data-test="${s.id}">測試</button>
-          <button type="button" class="ghost" data-del="${s.id}">刪除</button>
+          <button type="button" class="ghost" data-test="${esc(s.id)}">測試</button>
+          <button type="button" class="ghost" data-del="${esc(s.id)}">刪除</button>
         </div>`;
       return div;
     }),
@@ -395,19 +541,35 @@ async function loadSubs() {
 function watchSummary() {
   const n = watch.size;
   $('#watchSummary').textContent = n
-    ? `目前追蹤 ${n} 個組合：${[...watch].map((k) => { const [t, d] = k.split('|'); return `${stationByNo.get(d)?.name ?? d}·${(licenseByCode.get(t)?.name ?? t).replace(' (50cc以下)', '')}`; }).join('、')}`
-    : '你還沒有 ★ 追蹤任何組合。現在建立訂閱會變成全台通吃，建議先回表格點幾個 ★。';
+    ? `追蹤中 ${n} 組：${[...watch].map((k) => { const [t, d] = k.split('|'); return `${stationName(d)}·${shortType(t)}`; }).join('、')}`
+    : '還沒有追蹤任何組合，現在建立會收到全台所有釋位。';
+}
+
+function closeNotify() {
+  $('#notifyModal').hidden = true;
+  document.documentElement.classList.remove('locked');
+  $('#openNotify').focus();
 }
 
 $('#openNotify').addEventListener('click', () => {
   $('#adminToken').value = token();
   watchSummary();
   $('#notifyModal').hidden = false;
+  document.documentElement.classList.add('locked');
+  $('#closeNotify').focus();
   loadSubs();
 });
-$('#closeNotify').addEventListener('click', () => { $('#notifyModal').hidden = true; });
-$('#notifyModal').addEventListener('click', (e) => { if (e.target.id === 'notifyModal') $('#notifyModal').hidden = true; });
-$('#adminToken').addEventListener('change', (e) => { localStorage.setItem(TOKEN_KEY, e.target.value.trim()); loadSubs(); });
+$('#closeNotify').addEventListener('click', closeNotify);
+$('#notifyModal').addEventListener('click', (e) => { if (e.target.id === 'notifyModal') closeNotify(); });
+$('#adminToken').addEventListener('change', (e) => {
+  try { localStorage.setItem(TOKEN_KEY, e.target.value.trim()); } catch {}
+  loadSubs();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('#notifyModal').hidden) closeNotify();
+  else if ($('#moreFilters').classList.contains('open')) setFilterSheet(false);
+});
 
 $('#addSub').addEventListener('click', async () => {
   const target = $('#webhookUrl').value.trim();
@@ -418,23 +580,25 @@ $('#addSub').addEventListener('click', async () => {
     headers: authHeaders(),
     body: JSON.stringify({ target, label: $('#webhookLabel').value.trim() || null, watches }),
   });
-  const out = await res.json();
-  if (!res.ok) return alert(out.error ?? '建立失敗');
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) return alert(out.error ?? `建立失敗（HTTP ${res.status}）`);
   $('#webhookUrl').value = '';
   $('#webhookLabel').value = '';
   loadSubs();
 });
 
 $('#subs').addEventListener('click', async (e) => {
-  const t = e.target.dataset.test;
-  const d = e.target.dataset.del;
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const t = btn.dataset.test;
+  const d = btn.dataset.del;
   if (t) {
-    const r = await (await fetch(`/api/subscriptions/test?id=${t}`, { method: 'POST', headers: authHeaders() })).json();
+    const r = await (await fetch(`/api/subscriptions/test?id=${encodeURIComponent(t)}`, { method: 'POST', headers: authHeaders() })).json();
     alert(r.ok ? '已送出測試訊息，去 Discord 看看。' : `失敗（HTTP ${r.status}）`);
     loadSubs();
   }
   if (d && confirm('確定刪除這個訂閱？')) {
-    await fetch(`/api/subscriptions?id=${d}`, { method: 'DELETE', headers: authHeaders() });
+    await fetch(`/api/subscriptions?id=${encodeURIComponent(d)}`, { method: 'DELETE', headers: authHeaders() });
     loadSubs();
   }
 });
@@ -475,6 +639,7 @@ $('#dateChips').addEventListener('click', (e) => {
   refresh();
 });
 
+form.addEventListener('submit', (e) => e.preventDefault());
 form.addEventListener('change', (e) => {
   if (e.target.name === 'county') { form.elements.lv1.value = ''; fillStations(); }
   refresh();
@@ -483,14 +648,15 @@ form.addEventListener('input', (e) => { if (e.target.type === 'number') refresh(
 
 // 逐一清空而不是 form.reset()：後者只還原成 HTML 預設值，語意上比較模糊，
 // 而且表單內只要有元素的 id 叫 reset 就會把方法遮蔽掉。
-$('#clearFilters').addEventListener('click', () => {
+function clearFilters() {
   for (const name of ['county', 'dmvNo', 'from', 'to', 'lv1', 'licenseType']) form.elements[name].value = '';
   for (const name of ['weekendOnly', 'watchedOnly']) form.elements[name].checked = false;
   form.elements.minQuota.value = '1';
   activeGroup = '';
   fillStations();
   refresh();
-});
+}
+for (const b of $$('#moreFilters [data-clear]')) b.addEventListener('click', clearFilters);
 
 $('#avail').addEventListener('click', (e) => {
   const btn = e.target.closest('.starbtn');
@@ -504,18 +670,26 @@ $('#avail').addEventListener('click', (e) => {
 
 $('#share').addEventListener('click', async () => {
   const btn = $('#share');
+  const lbl = btn.querySelector('.lbl');
   try {
     await navigator.clipboard.writeText(location.href);
-    btn.textContent = '✅ 已複製';
+    lbl.textContent = '已複製';
+    btn.classList.add('done');
+    btn.setAttribute('aria-label', '已複製連結');
   } catch {
     prompt('複製這個網址：', location.href);
   }
-  setTimeout(() => (btn.textContent = '🔗 複製連結'), 1500);
+  setTimeout(() => {
+    lbl.textContent = '複製連結';
+    btn.classList.remove('done');
+    btn.setAttribute('aria-label', '複製連結');
+  }, 1500);
 });
 
 $('#autoRefresh').addEventListener('change', (e) => {
   clearInterval(timer);
   if (e.target.checked) timer = setInterval(tick, REFRESH_MS);
+  $('.status').classList.toggle('paused', !e.target.checked);
 });
 
 async function tick() {
@@ -532,3 +706,4 @@ filtersFromUrl();
 fillStations();
 await refresh();
 timer = setInterval(tick, REFRESH_MS);
+(window.requestIdleCallback ?? ((fn) => setTimeout(fn, 200)))(() => import('/aura.js').then((m) => m.initAura()).catch(() => {}));

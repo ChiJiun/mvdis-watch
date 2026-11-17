@@ -2,119 +2,162 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>監理站考照餘額監測</title>
 <meta name="description" content="全台 36 個監理站 × 10 種照類的考照場次餘額，哪裡現在有位、剛剛有人退考釋位。每個監理站都有完整場次表與釋位歷史統計，並提供公開 JSON API。" />
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#1b2336" media="(prefers-color-scheme: dark)" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="監理站考照餘額監測" />
 <meta property="og:description" content="全台監理站考照場次餘額一覽：現在有位、剛剛釋位、各站完整場次表與釋位統計。" />
 <meta name="twitter:card" content="summary" />
 <link rel="stylesheet" href="/style.css" />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛵</text></svg>" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230b6bcb'/%3E%3Cg fill='none' stroke='white' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='7'/%3E%3Ccircle cx='12' cy='12' r='1.6'/%3E%3Cpath d='M5 12h5M14 12h5M12 14v5'/%3E%3C/g%3E%3C/svg%3E" />
 </head>
 <body>
-<header>
+<div class="aura" aria-hidden="true"><div class="stage"><canvas></canvas></div></div>
+
+<header class="topbar">
   <div class="wrap head">
-    <h1>🛵 監理站考照餘額監測</h1>
+    <a href="/" class="brand">
+      <span class="logo" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M3 12h7M14 12h7M12 14v7"/></svg></span>
+      <strong>監理站考照餘額監測</strong>
+    </a>
     <div class="status">
-      <span id="lastScan" class="pill">載入中…</span>
-      <label class="pill toggle"><input type="checkbox" id="autoRefresh" checked /> 自動更新</label>
-      <button type="button" id="share" class="pill btn" title="複製含目前篩選條件的網址">🔗 複製連結</button>
-      <button type="button" id="openNotify" class="pill btn">🔔 通知設定</button>
+      <span id="lastScan" class="pill idle" role="status"><i class="dot" aria-hidden="true"></i><span class="t">載入中…</span></span>
+      <label class="iconbtn toggle" title="自動更新（每 30 秒）">
+        <input type="checkbox" id="autoRefresh" class="sr" aria-label="自動更新" checked />
+        <svg class="ic i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>
+        <svg class="ic i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+      </label>
+    </div>
+    <div class="actions">
+      <button type="button" id="share" class="iconbtn" title="複製含目前篩選條件的網址" aria-label="複製連結">
+        <svg class="ic i-def" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+        <svg class="ic i-ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        <span class="lbl sr" aria-live="polite">複製連結</span>
+      </button>
+      <button type="button" id="openNotify" class="iconbtn" title="Discord 推播通知設定" aria-label="通知設定">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>
+      </button>
     </div>
   </div>
 </header>
 
 <main class="wrap">
   <!-- 分區總覽：先回答「到底哪裡還有缺」，再往下鑽 -->
-  <section class="overview">
-    <div class="ovhead">
-      <h2>哪裡還有位</h2>
-      <span class="mini" id="ovSummary"></span>
+  <section class="overview" aria-labelledby="ovTitle">
+    <div class="sechead">
+      <h1 id="ovTitle">哪裡還有位</h1>
+      <p class="summary" id="ovSummary"></p>
     </div>
-    <div id="cards" class="cards"><div class="card skel">載入中…</div></div>
+    <div id="cards" class="cards" role="group" aria-label="點選監理所篩選場次"><div class="card skel">載入中…</div></div>
+
+    <!-- 每站頁面入口：完整場次表（含額滿）、釋位統計，網址可直接分享 -->
+    <details class="stations">
+      <summary title="每一站的完整場次表（含額滿）與釋位統計"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>各監理站</summary>
+      <div id="stationLinks" class="stgroups"></div>
+    </details>
   </section>
 
-  <!-- 每站頁面入口：完整場次表（含額滿）、釋位統計，網址可直接分享 -->
-  <details class="stations">
-    <summary>各監理站頁面：完整場次表（含額滿）與釋位統計</summary>
-    <div id="stationLinks" class="stgroups"></div>
-  </details>
+  <form id="filters" class="filters" autocomplete="off">
+    <div class="typebar">
+      <div id="typeGroups" class="seg" role="group" aria-label="照類分組"></div>
+      <div id="typeChips" class="chips scrollx" role="group" aria-label="照類"></div>
+    </div>
 
-  <form id="filters" class="toolbar">
-    <div class="line">
-      <span class="cap">照類</span>
-      <div id="typeGroups" class="seg"></div>
-      <div id="typeChips" class="chips"></div>
+    <!-- 手機：開抽屜的按鈕與目前套用的條件 -->
+    <div class="mbar">
+      <button type="button" id="openFilters" class="filterbtn" aria-controls="moreFilters" aria-expanded="false">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+        篩選 <span id="filterCount" class="badge" hidden></span>
+      </button>
+      <div id="activeTags" class="tags" aria-label="目前的篩選條件"></div>
     </div>
-    <div class="line">
-      <span class="cap">日期</span>
-      <div id="dateChips" class="chips"></div>
-      <span class="custom">
-        <input type="date" name="from" /> <span class="mini">→</span> <input type="date" name="to" />
-      </span>
+
+    <div id="moreFilters" class="more" role="group" aria-labelledby="moreTitle">
+      <div class="sheethead m-only">
+        <h2 id="moreTitle">篩選</h2>
+        <button type="button" class="ghost icon" data-close-filters aria-label="關閉">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="fbody">
+        <div class="fgroup" role="group" aria-label="日期">
+          <div id="dateChips" class="chips"></div>
+          <span class="custom">
+            <input type="date" name="from" aria-label="開始日期" /> <span aria-hidden="true">→</span> <input type="date" name="to" aria-label="結束日期" />
+          </span>
+        </div>
+        <div class="fgroup" role="group" aria-label="地點">
+          <select name="county" aria-label="縣市"><option value="">全部縣市</option></select>
+          <select name="dmvNo" aria-label="監理站"><option value="">全部監理站</option></select>
+        </div>
+        <div class="fgroup">
+          <span class="inline">
+            <label class="chip check">餘額 ≥ <input type="number" name="minQuota" min="1" value="1" class="tiny" inputmode="numeric" aria-label="最少餘額" /></label>
+            <label class="chip check"><input type="checkbox" name="weekendOnly" value="1" /> 只看假日</label>
+            <label class="chip check"><input type="checkbox" name="watchedOnly" value="1" /> 只看追蹤</label>
+          </span>
+          <!-- 不要把 id 取成 reset：表單內的元素 id 會遮蔽 form.reset() 方法 -->
+          <button type="button" id="clearFilters" class="ghost push d-only" data-clear hidden>清除</button>
+        </div>
+      </div>
+      <div class="sheetfoot m-only">
+        <button type="button" class="ghost" data-clear>清除</button>
+        <button type="button" id="applyFilters" class="primary" data-close-filters>看結果</button>
+      </div>
     </div>
-    <div class="line">
-      <span class="cap">地點</span>
-      <select name="county"><option value="">全部縣市</option></select>
-      <select name="dmvNo"><option value="">全部監理站</option></select>
-      <span class="cap wauto">餘額 ≥</span>
-      <input type="number" name="minQuota" min="1" value="1" class="tiny" />
-      <label class="chip check"><input type="checkbox" name="weekendOnly" value="1" /> 只看假日</label>
-      <label class="chip check"><input type="checkbox" name="watchedOnly" value="1" /> 只看追蹤 ★</label>
-      <!-- 不要把 id 取成 reset：表單內的元素 id 會遮蔽 form.reset() 方法 -->
-      <button type="button" id="clearFilters" class="ghost">清除</button>
-    </div>
+    <div id="filterBackdrop" class="backdrop" hidden data-close-filters></div>
+
     <input type="hidden" name="lv1" />
     <input type="hidden" name="licenseType" />
   </form>
 
   <div class="cols">
-    <section class="panel">
-      <h2>現在有位 <span id="count" class="count"></span></h2>
+    <section class="panel results" aria-labelledby="availTitle">
+      <div class="panelhead"><h2 id="availTitle">現在有位</h2><span id="count" class="count"></span></div>
       <div class="tablewrap">
-        <table id="avail">
+        <table id="avail" class="grid avail">
           <thead>
             <tr>
-              <th class="star" title="追蹤這個 監理站×照類">★</th>
-              <th>考試日期</th>
+              <th class="c-star" title="追蹤這個 監理站×照類"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg><span class="sr">追蹤</span></th>
+              <th>日期</th>
               <th>監理站</th>
-              <th>照類</th>
               <th class="num">餘額</th>
               <th>場次</th>
-              <th></th>
+              <th><span class="sr">報名</span></th>
             </tr>
           </thead>
-          <tbody><tr><td colspan="7" class="empty">載入中…</td></tr></tbody>
+          <tbody><tr><td colspan="6" class="empty">載入中…</td></tr></tbody>
         </table>
       </div>
     </section>
 
-    <aside class="panel">
-      <h2>剛剛釋出</h2>
-      <p class="hint"><code>釋出</code> 表示從額滿變成有位，也就是有人退考。這是唯一會推播給你的事件。</p>
+    <aside class="panel" aria-labelledby="evTitle">
+      <div class="panelhead"><h2 id="evTitle">最新變動</h2></div>
       <ul id="events" class="events"><li class="empty">載入中…</li></ul>
+      <button type="button" id="moreEvents" class="more-ev" hidden>顯示全部</button>
     </aside>
   </div>
 </main>
 
 <!-- 通知設定 -->
 <div id="notifyModal" class="modal" hidden>
-  <div class="sheet">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="notifyTitle">
     <div class="sheethead">
-      <h2>🔔 通知設定</h2>
-      <button type="button" id="closeNotify" class="ghost">關閉</button>
+      <h2 id="notifyTitle"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>通知設定</h2>
+      <button type="button" id="closeNotify" class="ghost icon" aria-label="關閉">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
     </div>
     <div class="sheetbody">
-      <p class="hint">
-        只有你 ★ 追蹤的「監理站 × 照類」<b>從額滿變成有位</b>時才會推播。
-        沒有追蹤任何組合的訂閱＝全台通吃（會很吵，不建議）。
-      </p>
+      <p class="hint">追蹤的「監理站 × 照類」從額滿變成有位時，推播到 Discord。</p>
 
       <label class="field">
         管理密碼
-        <input type="password" id="adminToken" placeholder="部署時設定的 ADMIN_TOKEN" />
-        <span class="mini">存在這台瀏覽器，不會送到別處。訂閱端點靠它保護——沒有它，任何人都能讀走你的 webhook 網址。</span>
+        <input type="password" id="adminToken" placeholder="部署時設定的 ADMIN_TOKEN" autocomplete="off" />
+        <span class="mini">只存在這台瀏覽器。</span>
       </label>
 
       <hr />
@@ -122,23 +165,23 @@
       <label class="field">
         Discord Webhook 網址
         <input type="url" id="webhookUrl" placeholder="https://discord.com/api/webhooks/…" />
-        <span class="mini">Discord 頻道 → 編輯頻道 → 整合 → Webhook → 建立 → 複製網址</span>
+        <span class="mini">頻道 → 編輯頻道 → 整合 → Webhook → 建立 → 複製網址</span>
       </label>
       <label class="field">
-        備註（選填）
-        <input type="text" id="webhookLabel" placeholder="例如：我的手機" />
+        備註
+        <input type="text" id="webhookLabel" placeholder="選填，例如：我的手機" />
       </label>
       <p class="mini" id="watchSummary"></p>
       <div class="row">
-        <button type="button" id="addSub" class="primary">用目前追蹤清單建立訂閱</button>
+        <button type="button" id="addSub" class="primary">建立訂閱</button>
       </div>
-      <p class="warn mini">
-        ⚠️ webhook 網址等同密鑰，會存在資料庫裡。任何拿到它的人都能往你的頻道發訊息，
-        外流就到 Discord 刪掉重建一個。
+      <p class="callout">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.5M12 17.2v.1"/></svg>
+        <span>Webhook 網址等同密鑰，會存進資料庫；外流時到 Discord 刪掉重建。</span>
       </p>
 
       <hr />
-      <h3>目前的訂閱</h3>
+      <h3>訂閱</h3>
       <div id="subs" class="subs"><p class="mini">請先輸入管理密碼。</p></div>
     </div>
   </div>
@@ -146,11 +189,9 @@
 
 <footer class="wrap">
   <div id="health" class="health"></div>
-  <p class="mini">資料也能直接取用：<a href="/api">公開 JSON API</a>（30 秒快取，允許跨網域讀取）。</p>
   <p class="disclaimer">
-    資料每分鐘分批抓取自
-    <a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener">監理服務網考照預約報名</a>，
-    非即時，僅供參考。實際餘額與報名一律以官網為準；本站不代辦報名。
+    資料來自<a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener">監理服務網考照預約報名</a>，非即時；餘額與報名以官網為準，本站不代辦報名。
+    <a href="/api">JSON API</a>
   </p>
 </footer>
 

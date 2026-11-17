@@ -30,6 +30,8 @@ import { STATIC } from './static.gen.ts';
 
 /** 公開 GET 的快取秒數（CloudFront 依這個值快取） */
 const PUBLIC_TTL = 30;
+/** 檔名帶版本號的第三方檔案，內容不會變，可以讓瀏覽器與 CDN 長期快取 */
+const VENDOR_TTL = 31_536_000;
 const STATS_DAYS = 30;
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
@@ -352,8 +354,11 @@ async function route(req: IncomingMessage, opts: AppOptions): Promise<Reply> {
   if (p === '/' || p === '/index.html') return staticFile('index.html', req);
   // 原型的 station.js 也支援 /station.html?no=41 這種舊網址
   const name = p.slice(1);
-  if (name === 'station.html' || name === 'app.js' || name === 'station.js' || name === 'style.css') {
+  if (name === 'station.html' || name === 'app.js' || name === 'station.js' || name === 'style.css' || name === 'aura.js') {
     return staticFile(name, req);
+  }
+  if (name === 'vendor/shaders-4.0.7.js' || name === 'vendor/shaders-4.0.7.LICENSE.txt') {
+    return staticFile(name, req, VENDOR_TTL);
   }
 
   return text('Not found', 404);
