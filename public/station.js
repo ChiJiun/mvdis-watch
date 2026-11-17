@@ -122,9 +122,14 @@ function renderLastScan() {
   replayPulse(el);
 }
 
-/** 每次重新讀取資料後讓狀態點再擴散三次（動畫跑完就停，靜置時不耗資源） */
+/**
+ * 每次重新讀取資料後讓狀態點再擴散三次（動畫跑完就停，靜置時不耗資源）。
+ * 跑完的 CSS 動畫不會再出現在 getAnimations() 裡，所以用「拿掉 .beat → 強制重排 → 加回」重新觸發。
+ */
 function replayPulse(el) {
-  for (const a of el.querySelector('.dot')?.getAnimations?.({ subtree: true }) ?? []) { a.cancel(); a.play(); }
+  el.classList.remove('beat');
+  void el.offsetWidth;
+  el.classList.add('beat');
 }
 
 const typesInScope = () => (activeType ? [activeType] : data.licenseTypes.map((t) => t.code));

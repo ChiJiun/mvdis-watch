@@ -135,12 +135,10 @@ a.brand:hover strong { color: var(--accent); }
   font-size: 13px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums;
   border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: var(--panel);
 }
-/* 狀態點：每次資料更新後擴散三次就停（JS 重新播放），只動 transform／opacity，靜置時不耗主執行緒 */
+/* 狀態點：每次資料更新後擴散三次就停（JS 重新加上 .beat），只動 transform／opacity，靜置時不耗主執行緒 */
 .pill .dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
-.pill .dot::after {
-  content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--good); opacity: 0;
-  animation: pulse 1.6s ease-out 3;
-}
+.pill .dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--good); opacity: 0; }
+.pill.beat .dot::after { animation: pulse 1.6s ease-out 3; }
 .pill.stale { color: var(--hot); border-color: color-mix(in srgb, var(--hot) 45%, var(--line)); }
 .pill.stale .dot { background: var(--hot); box-shadow: 0 0 0 3px var(--hot-soft); }
 .pill.stale .dot::after, .pill.idle .dot::after { animation: none; }
